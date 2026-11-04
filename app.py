@@ -165,6 +165,10 @@ class MainWindow(QMainWindow):
         title_box.addWidget(label("Dateien", "section"))
         queue_header.addLayout(title_box)
         queue_header.addStretch()
+        self.open_folder_button = button("Ordner öffnen", self.open_output_folder, "ghost")
+        self.open_folder_button.setToolTip("Ausgabeordner des ausgewählten Auftrags im Explorer öffnen")
+        self.open_folder_button.setEnabled(False)
+        queue_header.addWidget(self.open_folder_button)
         add_button = button("+ Dateien hinzufügen", self.choose_files, "primary")
         queue_header.addWidget(add_button)
         queue_layout.addLayout(queue_header)
@@ -520,6 +524,7 @@ class MainWindow(QMainWindow):
         self.table.blockSignals(False)
         selected_rows = {item.row() for item in self.table.selectedItems()}
         self.change_audio_button.setEnabled(any(self.jobs[row].status == "Bereit" and requires_audio(self.jobs[row].preset) for row in selected_rows))
+        self.open_folder_button.setEnabled(self.selected_job() is not None)
         self.count_label.setText(f"{len(self.jobs)} Auftrag{'e' if len(self.jobs) != 1 else ''}")
         self.start_button.setEnabled(any(job.status == "Bereit" for job in self.jobs) and not self.queue_running)
         self.update_preview()
@@ -530,8 +535,19 @@ class MainWindow(QMainWindow):
             row = self.table.selectionModel().selectedRows()[0].row()
         return self.jobs[row] if 0 <= row < len(self.jobs) else None
 
+    def open_output_folder(self):
+        job = self.selected_job()
+        if not job:
+            return
+        folder = job.output.parent
+        try:
+            os.startfile(str(folder))
+        except OSError as exc:
+            QMessageBox.warning(self, "Ordner nicht geöffnet", f"Der Ausgabeordner konnte nicht geöffnet werden:\n{folder}\n\n{exc}")
+
     def queue_selection_changed(self):
         job = self.selected_job()
+        self.open_folder_button.setEnabled(job is not None)
         self.update_preview()
         selected_rows = {item.row() for item in self.table.selectedItems()}
         self.change_audio_button.setEnabled(any(self.jobs[row].status == "Bereit" and requires_audio(self.jobs[row].preset) for row in selected_rows))

@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -50,6 +51,11 @@ def main() -> int:
     window.source_path.returnPressed.emit()
     if len(window.jobs) != 1 or window.jobs[0].source != source or window.source_path.text():
         raise AssertionError("Pasted source path was not added")
+    if not window.open_folder_button.isEnabled():
+        raise AssertionError("Output folder button was not enabled")
+    with patch("app.os.startfile") as open_folder:
+        window.open_output_folder()
+        open_folder.assert_called_once_with(str(window.jobs[0].output.parent))
     window.add_files([str(source_two)])
     window.preset_combo.setCurrentIndex(window.preset_combo.findText("Audio ersetzen · Video kopieren"))
     window.audio_path.setText(str(replacement_audio))
