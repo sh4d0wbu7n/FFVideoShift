@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core import PROJECT_DIR, build_command, import_command, plan_output, validate_preset
+from core import PROJECT_DIR, build_command, import_command, load_presets, plan_output, requires_audio, validate_preset
 
 TEST_TMP = PROJECT_DIR / ".tmp"
 TEST_TMP.mkdir(exist_ok=True)
@@ -54,6 +54,26 @@ class PresetTests(unittest.TestCase):
         preset["command"] = 'ffmpeg -i "{input}" -i extra.mov "{output}"'
         with self.assertRaises(ValueError):
             validate_preset(preset)
+
+    def test_audio_replacement_requires_second_file(self):
+        preset = import_command('ffmpeg -i "video.mov" -i "new audio.wav" -map 0:v:0 -map 1:a:0 -c:v copy "output.mov"')
+        self.assertTrue(requires_audio(preset))
+        with tempfile.TemporaryDirectory(dir=TEST_TMP) as folder:
+            root = Path(folder)
+            binary, source, audio = (root / name for name in ["ffmpeg.exe", "video.mov", "new audio.wav"])
+            for path in (binary, source, audio):
+                path.touch()
+            output = plan_output(source, preset)
+            with self.assertRaises(ValueError):
+                build_command(binary, source, output, preset)
+            _, args = build_command(binary, source, output, preset, audio)
+            self.assertEqual([args[i + 1] for i, arg in enumerate(args) if arg == "-i"], [str(source), str(audio)])
+
+    def test_ten_preset_names_and_outputs_are_distinct(self):
+        presets = load_presets()
+        self.assertEqual(len(presets), 10)
+        self.assertEqual(len({preset["name"] for preset in presets}), 10)
+        self.assertEqual(len({preset["suffix"] for preset in presets}), 10)
 
 
 if __name__ == "__main__":

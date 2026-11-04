@@ -12,8 +12,8 @@ In diesem Projekt ist der Python-Interpreter `C:\venv\python3_12_10\python.exe` 
 
 ## Workflow
 
-1. Preset wählen oder einen FFmpeg-Befehl importieren.
-2. Dateien per Drag-and-drop auf die Dateiliste ziehen oder über **Dateien hinzufügen** wählen. Jede Datei erhält das gerade ausgewählte Preset. Änderungen am Preset werden beim Hinzufügen gespeichert.
+1. Preset wählen oder einen FFmpeg-Befehl importieren. Bei **Audio ersetzen** die zusätzliche Audiodatei im eingeblendeten Feld wählen.
+2. Dateien per Drag-and-drop auf die Dateiliste ziehen oder über **Dateien hinzufügen** wählen. Jede Datei erhält das gerade ausgewählte Preset und gegebenenfalls die gewählte Ersatz-Audiodatei. Änderungen am Preset werden beim Hinzufügen gespeichert. Für einzelne wartende Aufträge kann die Audiodatei mit **Audio ändern** ausgetauscht werden.
 3. Einen Auftrag anklicken, um Medieninfos und die vollständige Befehlsvorschau zu sehen.
 4. **Warteschlange starten**. Aufträge laufen nacheinander. **Aktuellen Auftrag stoppen** beendet den laufenden FFmpeg-Prozess und hält die Warteschlange an.
 
@@ -21,9 +21,24 @@ Jede Ausgabe landet **im selben Ordner wie die jeweilige Quelldatei**. Der Name 
 
 ## Presets
 
-Die mitgelieferten Presets stehen in [`presets.json`](presets.json). Der Editor in der App speichert Änderungen dort. `settings.json` enthält nur lokale Binärpfade und wird von Git ignoriert.
+Die zehn mitgelieferten Presets stehen in [`presets.json`](presets.json). Der Editor in der App speichert Änderungen dort. `settings.json` enthält nur lokale Binärpfade und wird von Git ignoriert.
 
-Ein Preset enthält Name, Dateizusatz, Endung und einen FFmpeg-Befehl. `{input}` muss genau einmal direkt nach `-i` stehen; `{output}` muss das letzte Argument sein. Die App ersetzt beide Platzhalter durch absolute Pfade. Der Befehl wird als Argumentliste ohne Shell ausgeführt. Shell-Verkettungen und Umleitungen werden deshalb nicht unterstützt.
+| Preset | Ausgabe | Zweck |
+| --- | --- | --- |
+| ProRes HQ · Schnittmaster | MOV | ProRes 422 HQ mit 10-Bit-Video und PCM-Audio |
+| H.264 · hohe Qualität | MP4 | CRF 18, langsameres Encoding |
+| H.264 · schnell | MP4 | CRF 23, schnelles Encoding |
+| H.265 · hohe Qualität | MP4 | HEVC mit CRF 22 |
+| H.265 · schnell | MP4 | HEVC mit CRF 26 |
+| Audio extrahieren · WAV 24 Bit | WAV | Erste Tonspur als unkomprimiertes PCM |
+| Audio extrahieren · MP3 320k | MP3 | Erste Tonspur als MP3 |
+| Audio ersetzen · Video kopieren | MOV | Neue Tonspur, Videostream ohne Neucodierung |
+| MP4 · Streams kopieren | MP4 | Streams ohne Neucodierung umpacken |
+| 25 → 24 fps · Timescale | MOV | Vorhandenes Spezial-Preset für die Bildrate |
+
+Beim Ersetzen von Audio wird die neue Tonspur auf die Videolänge begrenzt; ist sie kürzer, wird Stille ergänzt. Das Video wird kopiert. Der Video-Codec muss deshalb zum MOV-Container passen. Beim MP4-Remux müssen die vorhandenen Streams zum MP4-Container passen.
+
+Ein Preset enthält Name, Dateizusatz, Endung und einen FFmpeg-Befehl. `{input}` muss genau einmal direkt nach `-i` stehen; `{output}` muss das letzte Argument sein. Für **Audio ersetzen** ist eine zweite Eingabe `-i "{audio}"` möglich. Die App ersetzt die Platzhalter durch absolute Pfade. Der Befehl wird als Argumentliste ohne Shell ausgeführt. Shell-Verkettungen und Umleitungen werden deshalb nicht unterstützt.
 
 Beispiel für die gewünschte Bildraten-Umrechnung:
 
@@ -39,7 +54,7 @@ ffmpeg -itsscale 1.0416666666666667 -i "im-grunde-mord_SC0002_S0130_v003_25_fps.
 
 FFVideoShift ersetzt dabei die konkrete Eingabe und Ausgabe durch Platzhalter. `output_24fps_v2.mov` ergibt automatisch den Dateizusatz `_24fps_v2` und die Endung `mov`. Beides kann anschließend bearbeitet werden.
 
-Presets unterstützen derzeit **eine Eingabedatei pro Auftrag**. Zusätzliche `-i`-Eingaben und komplexe Filtergraphen mit externen Dateien können später gezielt ergänzt werden.
+Presets unterstützen derzeit **eine Videodatei und optional eine zweite Audiodatei pro Auftrag**. Weitere `-i`-Eingaben und komplexe Filtergraphen mit externen Dateien können später gezielt ergänzt werden.
 
 ## Medieninfos und Fortschritt
 
@@ -64,6 +79,14 @@ Alle Python-Pakete gehören in `.venv` im Projektordner. Für eine manuelle Sitz
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 python app.py
+```
+
+Die Presets und die GUI lassen sich mit kurzen, ausschließlich im Projektordner erzeugten Testmedien prüfen:
+
+```powershell
+python -m unittest discover -s tests -v
+python tests\smoke_presets.py
+python tests\smoke_gui.py
 ```
 
 FFmpeg und ffprobe selbst werden nicht durch FFVideoShift installiert. Der Code steht unter der MIT-Lizenz.

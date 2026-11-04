@@ -25,12 +25,19 @@ def main() -> int:
     folder.mkdir(parents=True, exist_ok=True)
     source = folder / "sample 25 fps.mov"
     source_two = folder / "second 25 fps.mov"
+    replacement_audio = folder / "replacement.wav"
     subprocess.run(
         [ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
-         "-i", "color=c=teal:s=64x64:r=25", "-t", "1", "-c:v", "mpeg4", str(source)],
+         "-i", "color=c=teal:s=64x64:r=25", "-f", "lavfi", "-i", "sine=frequency=440",
+         "-t", "1", "-c:v", "mpeg4", "-c:a", "aac", str(source)],
         check=True,
     )
     shutil.copyfile(source, source_two)
+    subprocess.run(
+        [ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
+         "-i", "sine=frequency=880", "-t", "0.4", str(replacement_audio)],
+        check=True,
+    )
     app = QApplication([])
     app.setStyle("Fusion")
     app.setStyleSheet(STYLE)
@@ -40,13 +47,17 @@ def main() -> int:
     screenshot = folder / "ffvideoshift.png"
     window.grab().save(str(screenshot))
     window.add_files([str(source), str(source_two)])
+    window.preset_combo.setCurrentIndex(window.preset_combo.findText("Audio ersetzen · Video kopieren"))
+    window.audio_path.setText(str(replacement_audio))
+    window.add_files([str(source)])
+    window.grab().save(str(folder / "ffvideoshift_audio.png"))
     app.processEvents()
     probe_loop = QEventLoop()
     window.ffprobe_process.finished.connect(probe_loop.quit)
     QTimer.singleShot(10000, probe_loop.quit)
     if window.ffprobe_process.state() != window.ffprobe_process.ProcessState.NotRunning:
         probe_loop.exec()
-    if not window.jobs[1].duration:
+    if not window.jobs[2].duration:
         raise AssertionError("Media duration was not read")
     window.start_queue()
     deadline = QTimer()

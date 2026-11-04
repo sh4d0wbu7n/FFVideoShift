@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 
 from core import (
     build_command, import_command, load_presets, load_settings, plan_output,
-    save_presets, save_settings, subprocess_command, validate_preset,
+    requires_audio, save_presets, save_settings, subprocess_command, validate_preset,
 )
 
 
@@ -64,6 +64,7 @@ class Job:
     source: Path
     preset: dict
     output: Path
+    audio: Path | None = None
     status: str = "Bereit"
     duration: float | None = None
 
@@ -169,6 +170,16 @@ class MainWindow(QMainWindow):
         queue_layout.addLayout(queue_header)
         queue_layout.addWidget(label("Dateien aus dem Explorer hierher ziehen oder über den Button auswählen.", "muted"))
 
+        self.audio_input_row = QWidget()
+        audio_layout = QHBoxLayout(self.audio_input_row)
+        audio_layout.setContentsMargins(0, 0, 0, 0)
+        audio_layout.addWidget(label("ERSATZ-AUDIO", "eyebrow"))
+        self.audio_path = QLineEdit()
+        self.audio_path.setPlaceholderText("Für neue Aufträge auswählen")
+        audio_layout.addWidget(self.audio_path, 1)
+        audio_layout.addWidget(button("Wählen", self.choose_audio, "ghost"))
+        queue_layout.addWidget(self.audio_input_row)
+
         self.table = DropTable()
         self.table.setColumnCount(4)
         self.table.setHorizontalHeaderLabels(["QUELLE", "PRESET", "STATUS", "AUSGABE"])
@@ -178,9 +189,9 @@ class MainWindow(QMainWindow):
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
         self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.setColumnWidth(0, 270)
-        self.table.setColumnWidth(1, 210)
-        self.table.setColumnWidth(2, 105)
+        self.table.setColumnWidth(0, 210)
+        self.table.setColumnWidth(1, 185)
+        self.table.setColumnWidth(2, 90)
         self.table.setMinimumHeight(280)
         self.table.files_dropped.connect(self.add_files)
         self.table.itemSelectionChanged.connect(self.queue_selection_changed)
@@ -188,6 +199,10 @@ class MainWindow(QMainWindow):
         q_actions = QHBoxLayout()
         q_actions.addWidget(button("Auswahl entfernen", self.remove_selected, "ghost"))
         q_actions.addWidget(button("Erledigte löschen", self.clear_finished, "ghost"))
+        self.change_audio_button = button("Audio ändern", self.choose_audio_for_selected, "ghost")
+        self.change_audio_button.setToolTip("Ersatz-Audio für ausgewählte wartende Aufträge ändern")
+        self.change_audio_button.setEnabled(False)
+        q_actions.addWidget(self.change_audio_button)
         q_actions.addStretch()
         self.count_label = label("0 Aufträge", "muted")
         q_actions.addWidget(self.count_label)
@@ -263,7 +278,7 @@ class MainWindow(QMainWindow):
         details.setColumnStretch(1, 2)
         details.setColumnStretch(2, 1)
         preset_layout.addLayout(details)
-        preset_layout.addWidget(label("FFMPEG-BEFEHL · {input} UND {output} ALS PLATZHALTER", "eyebrow"))
+        preset_layout.addWidget(label("FFMPEG-BEFEHL · {input}, {output}, OPTIONAL {audio}", "eyebrow"))
         self.command_edit = QTextEdit()
         self.command_edit.setMinimumHeight(130)
         self.command_edit.setFont(QFont("Consolas", 10))
@@ -313,6 +328,7 @@ class MainWindow(QMainWindow):
         self.preset_suffix.setText(preset["suffix"])
         self.preset_extension.setText(preset["extension"])
         self.command_edit.setPlainText(preset["command"])
+        self.audio_input_row.setVisible(requires_audio(preset))
         self.update_preview()
 
     def _edited_preset(self) -> dict:
@@ -336,6 +352,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Preset nicht gespeichert", str(exc))
             return False
         self.preset_combo.setItemText(index, preset["name"])
+        self.audio_input_row.setVisible(requires_audio(preset))
         self.update_preview()
         self.log.appendPlainText(f"Preset gespeichert: {preset['name']}")
         return True
@@ -400,6 +417,25 @@ class MainWindow(QMainWindow):
         paths, _ = QFileDialog.getOpenFileNames(self, "Mediendateien auswählen", "", "Mediendateien (*.*)")
         self.add_files(paths)
 
+    def choose_audio(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Ersatz-Audiodatei auswählen", self.audio_path.text(), "Audiodateien (*.wav *.mp3 *.m4a *.aac *.flac *.aif *.aiff *.ogg);;Alle Dateien (*)")
+        if path:
+            self.audio_path.setText(path)
+
+    def choose_audio_for_selected(self):
+        rows = {item.row() for item in self.table.selectedItems()}
+        jobs = [self.jobs[row] for row in rows if self.jobs[row].status == "Bereit" and requires_audio(self.jobs[row].preset)]
+        if not jobs:
+            return
+        path, _ = QFileDialog.getOpenFileName(self, "Audio für ausgewählte Aufträge", self.audio_path.text(), "Audiodateien (*.wav *.mp3 *.m4a *.aac *.flac *.aif *.aiff *.ogg);;Alle Dateien (*)")
+        if not path:
+            return
+        self.audio_path.setText(path)
+        for job in jobs:
+            job.audio = Path(path)
+        self.refresh_queue()
+        self.queue_selection_changed()
+
     def add_files(self, paths: list[str]):
         if not paths:
             return
@@ -409,6 +445,14 @@ class MainWindow(QMainWindow):
         if self._edited_preset() != self.presets[index] and not self.save_current_preset():
             return
         preset = copy.deepcopy(self.presets[index])
+        audio = None
+        if requires_audio(preset):
+            audio = Path(self.audio_path.text().strip().strip('"'))
+            if not audio.is_file():
+                self.choose_audio()
+                audio = Path(self.audio_path.text().strip().strip('"'))
+                if not audio.is_file():
+                    return
         reserved = {job.output for job in self.jobs}
         added = 0
         for raw in paths:
@@ -417,7 +461,7 @@ class MainWindow(QMainWindow):
                 continue
             output = plan_output(source, preset, reserved)
             reserved.add(output)
-            self.jobs.append(Job(source, copy.deepcopy(preset), output))
+            self.jobs.append(Job(source, copy.deepcopy(preset), output, audio))
             added += 1
         self.refresh_queue()
         if added:
@@ -431,10 +475,11 @@ class MainWindow(QMainWindow):
         self.table.setRowCount(len(self.jobs))
         colors = {"Bereit": "#9eacc0", "Läuft": "#70e6c6", "Fertig": "#76d6a3", "Fehler": "#ff9cae", "Abgebrochen": "#ffbf80"}
         for row, job in enumerate(self.jobs):
-            values = [job.source.name, job.preset["name"], job.status, job.output.name]
+            preset_text = job.preset["name"] + (f" · {job.audio.name}" if job.audio else "")
+            values = [job.source.name, preset_text, job.status, job.output.name]
             for col, value in enumerate(values):
                 item = QTableWidgetItem(value)
-                item.setToolTip(str(job.source if col == 0 else job.output if col == 3 else value))
+                item.setToolTip(str(job.source if col == 0 else job.audio if col == 1 and job.audio else job.output if col == 3 else value))
                 if col == 2:
                     item.setForeground(QColor(colors.get(job.status, "#e7edf5")))
                 self.table.setItem(row, col, item)
@@ -442,6 +487,8 @@ class MainWindow(QMainWindow):
             self.table.setCurrentCell(selected, 0)
             self.table.selectRow(selected)
         self.table.blockSignals(False)
+        selected_rows = {item.row() for item in self.table.selectedItems()}
+        self.change_audio_button.setEnabled(any(self.jobs[row].status == "Bereit" and requires_audio(self.jobs[row].preset) for row in selected_rows))
         self.count_label.setText(f"{len(self.jobs)} Auftrag{'e' if len(self.jobs) != 1 else ''}")
         self.start_button.setEnabled(any(job.status == "Bereit" for job in self.jobs) and not self.queue_running)
         self.update_preview()
@@ -455,6 +502,8 @@ class MainWindow(QMainWindow):
     def queue_selection_changed(self):
         job = self.selected_job()
         self.update_preview()
+        selected_rows = {item.row() for item in self.table.selectedItems()}
+        self.change_audio_button.setEnabled(any(self.jobs[row].status == "Bereit" and requires_audio(self.jobs[row].preset) for row in selected_rows))
         if not job:
             self.media_info.setText("Wähle eine Datei in der Warteschlange.")
             return
@@ -490,6 +539,8 @@ class MainWindow(QMainWindow):
         if job and duration > 0:
             job.duration = duration
         lines = [f"<b>{escape(self.probe_source.name)}</b>"]
+        if job and job.audio:
+            lines.append(f"Ersatz-Audio: {escape(job.audio.name)}")
         if duration:
             lines.append(f"Dauer: {format_time(duration)}")
         if fmt.get("size"):
@@ -520,7 +571,7 @@ class MainWindow(QMainWindow):
             return
         binary = Path(self.ffmpeg_path.text().strip().strip('"'))
         try:
-            program, args = build_command(binary, job.source, job.output, job.preset)
+            program, args = build_command(binary, job.source, job.output, job.preset, job.audio)
             self.preview.setPlainText(subprocess_command([program, *args]))
         except ValueError as exc:
             self.preview.setPlainText(str(exc))
@@ -564,7 +615,7 @@ class MainWindow(QMainWindow):
         if job.output.exists() or job.output in reserved:
             job.output = plan_output(job.source, job.preset, reserved)
         try:
-            program, args = build_command(Path(self.ffmpeg_path.text().strip().strip('"')), job.source, job.output, job.preset)
+            program, args = build_command(Path(self.ffmpeg_path.text().strip().strip('"')), job.source, job.output, job.preset, job.audio)
         except ValueError as exc:
             job.status = "Fehler"
             self.log.appendPlainText(str(exc))

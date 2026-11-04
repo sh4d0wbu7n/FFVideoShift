@@ -49,13 +49,14 @@ def validate_preset(preset: dict) -> list[str]:
     args = split_command(command)
     if not args or Path(args[0]).name.lower() not in {"ffmpeg", "ffmpeg.exe"}:
         raise ValueError("Der Befehl muss mit ffmpeg beginnen.")
-    if args.count("{input}") != 1 or args.count("{output}") != 1:
-        raise ValueError("Der Befehl braucht genau einmal {input} und {output} als eigene Argumente.")
+    if args.count("{input}") != 1 or args.count("{output}") != 1 or args.count("{audio}") > 1:
+        raise ValueError("Der Befehl braucht genau einmal {input} und {output}; {audio} ist optional.")
     if args[-1] != "{output}":
         raise ValueError("{output} muss das letzte Argument sein.")
     inputs = [i for i, arg in enumerate(args) if arg == "-i"]
-    if len(inputs) != 1 or inputs[0] + 1 >= len(args) or args[inputs[0] + 1] != "{input}":
-        raise ValueError("Dieses Preset braucht genau eine Eingabe: -i \"{input}\".")
+    expected = ["{input}", "{audio}"] if "{audio}" in args else ["{input}"]
+    if len(inputs) != len(expected) or any(i + 1 >= len(args) or args[i + 1] != target for i, target in zip(inputs, expected)):
+        raise ValueError("Eingaben müssen -i \"{input}\" und optional -i \"{audio}\" sein.")
     if any(arg in {"|", ">", "<", "&&", "||", "&"} for arg in args[1:]):
         raise ValueError("Shell-Operatoren sind in Presets nicht erlaubt.")
     if "-y" in args[1:]:
@@ -64,13 +65,13 @@ def validate_preset(preset: dict) -> list[str]:
 
 
 def import_command(raw: str, name: str = "Importierter Befehl") -> dict:
-    """Convert a one-input pasted command to an editable template."""
+    """Convert a pasted command with one video and optional audio input."""
     args = split_command(raw.strip())
     if not args or Path(args[0]).name.lower() not in {"ffmpeg", "ffmpeg.exe"}:
         raise ValueError("Die Zeile muss mit ffmpeg beginnen.")
     inputs = [i for i, arg in enumerate(args) if arg == "-i"]
-    if len(inputs) != 1 or inputs[0] + 1 >= len(args):
-        raise ValueError("Import unterstützt Befehle mit genau einem -i.")
+    if not 1 <= len(inputs) <= 2 or any(i + 1 >= len(args) for i in inputs):
+        raise ValueError("Import unterstützt ein oder zwei -i-Eingaben.")
     if len(args) < inputs[0] + 3 or args[-1].startswith("-"):
         raise ValueError("Kein Ausgabepfad am Ende des Befehls gefunden.")
     output = Path(args[-1])
@@ -84,6 +85,8 @@ def import_command(raw: str, name: str = "Importierter Befehl") -> dict:
         extension = "mp4"
     args[0] = "ffmpeg"
     args[inputs[0] + 1] = "{input}"
+    if len(inputs) == 2:
+        args[inputs[1] + 1] = "{audio}"
     args[-1] = "{output}"
     command = subprocess_command(args)
     result = {"name": name, "suffix": suffix, "extension": extension, "command": command}
@@ -110,17 +113,23 @@ def plan_output(source: Path, preset: dict, reserved: set[Path] | None = None) -
     return candidate
 
 
-def build_command(binary: Path, source: Path, output: Path, preset: dict) -> tuple[str, list[str]]:
+def requires_audio(preset: dict) -> bool:
+    return "{audio}" in validate_preset(preset)
+
+
+def build_command(binary: Path, source: Path, output: Path, preset: dict, audio: Path | None = None) -> tuple[str, list[str]]:
     args = validate_preset(preset)
     if not binary.is_file():
         raise ValueError("FFmpeg-Binary nicht gefunden.")
     if not source.is_file():
         raise ValueError(f"Quelldatei nicht gefunden: {source}")
+    if "{audio}" in args and (audio is None or not audio.is_file()):
+        raise ValueError("Für dieses Preset muss eine vorhandene Ersatz-Audiodatei gewählt werden.")
     if source.parent != output.parent:
         raise ValueError("Die Ausgabe muss im Ordner der Quelle liegen.")
     if output.exists():
         raise ValueError(f"Ausgabedatei existiert bereits: {output}")
-    replaced = [str(source) if arg == "{input}" else str(output) if arg == "{output}" else arg for arg in args[1:]]
+    replaced = [str(source) if arg == "{input}" else str(output) if arg == "{output}" else str(audio) if arg == "{audio}" else arg for arg in args[1:]]
     return str(binary), ["-nostdin", "-hide_banner", "-n", "-progress", "pipe:1", "-stats_period", "0.25", *replaced]
 
 
