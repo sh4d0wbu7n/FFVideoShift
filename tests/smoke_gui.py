@@ -11,9 +11,10 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from PySide6.QtCore import QEventLoop, QTimer
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QApplication
 
-from app import MainWindow, STYLE
+from app import MainWindow, STYLE, ensure_fonts
 from core import PROJECT_DIR
 
 
@@ -40,10 +41,19 @@ def main() -> int:
         check=True,
     )
     app = QApplication([])
+    ensure_fonts()
+    app.setFont(QFont("Segoe UI", 10))
     app.setStyle("Fusion")
     app.setStyleSheet(STYLE)
     window = MainWindow()
     window.show()
+    app.processEvents()
+    if not window.table.empty_state.isVisible():
+        raise AssertionError("Empty queue hint was not visible")
+    window.resize(1050, 720)
+    app.processEvents()
+    window.grab().save(str(folder / "ffvideoshift_small.png"))
+    window.resize(1460, 960)
     app.processEvents()
     screenshot = folder / "ffvideoshift.png"
     window.grab().save(str(screenshot))
@@ -51,6 +61,8 @@ def main() -> int:
     window.source_path.returnPressed.emit()
     if len(window.jobs) != 1 or window.jobs[0].source != source or window.source_path.text():
         raise AssertionError("Pasted source path was not added")
+    if window.table.empty_state.isVisible():
+        raise AssertionError("Empty queue hint remained over a queued file")
     if not window.open_folder_button.isEnabled():
         raise AssertionError("Output folder button was not enabled")
     with patch("app.os.startfile") as open_folder:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import re
 import shutil
 import sys
 from dataclasses import dataclass
@@ -12,11 +13,11 @@ from html import escape
 from pathlib import Path
 
 from PySide6.QtCore import QProcess, QTimer, Qt, Signal
-from PySide6.QtGui import QColor, QFont
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QSyntaxHighlighter, QTextCharFormat
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout,
-    QInputDialog, QLabel, QLineEdit, QMainWindow, QMessageBox, QPlainTextEdit,
-    QProgressBar, QPushButton, QSplitter, QTableWidget, QTableWidgetItem,
+    QHeaderView, QInputDialog, QLabel, QLineEdit, QMainWindow, QMessageBox, QPlainTextEdit,
+    QProgressBar, QPushButton, QScrollArea, QSplitter, QTableWidget, QTableWidgetItem,
     QTextEdit, QVBoxLayout, QWidget, QAbstractItemView,
 )
 
@@ -27,35 +28,55 @@ from core import (
 
 
 STYLE = """
-QWidget { background: #0e1118; color: #e7edf5; font-family: 'Segoe UI'; font-size: 10pt; }
-QMainWindow { background: #0e1118; }
-QFrame#panel { background: #171c27; border: 1px solid #293244; border-radius: 16px; }
-QFrame#header { background: #121824; border-bottom: 1px solid #283142; }
-QLabel#eyebrow { color: #8d9bb0; font-size: 9pt; font-weight: 700; letter-spacing: 2px; }
-QLabel#title { color: #f3f7fc; font-size: 24pt; font-weight: 750; }
-QLabel#section { color: #f3f7fc; font-size: 12pt; font-weight: 700; }
-QLabel#muted { color: #99a7bb; }
-QLabel#pill { background: #173b37; color: #7aebcf; border-radius: 11px; padding: 5px 12px; font-weight: 700; }
-QLineEdit, QTextEdit, QPlainTextEdit, QComboBox { background: #0f1420; color: #f1f5fb; border: 1px solid #354154; border-radius: 9px; padding: 8px; selection-background-color: #2d8b8a; }
-QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus, QComboBox:focus { border-color: #55d6b8; }
-QComboBox::drop-down { border: none; width: 24px; }
-QComboBox QAbstractItemView { background: #1b2432; color: #f1f5fb; selection-background-color: #23665f; }
-QPushButton { background: #243044; border: 1px solid #3a4960; border-radius: 9px; padding: 9px 14px; font-weight: 650; }
-QPushButton:hover { background: #31415a; }
-QPushButton:pressed { background: #1e2a3b; }
-QPushButton:disabled { color: #66758a; background: #1a2330; border-color: #273243; }
-QPushButton#primary { background: #51d4b3; color: #0d2425; border-color: #51d4b3; }
-QPushButton#primary:hover { background: #82e9cc; }
-QPushButton#danger { background: #49303b; border-color: #805066; color: #ffb7c6; }
-QPushButton#ghost { background: transparent; border-color: #364253; }
-QTableWidget { background: #151b26; alternate-background-color: #1a2230; border: none; gridline-color: #2a3444; selection-background-color: #255750; selection-color: #f2fff9; }
-QTableWidget::item { padding: 8px; }
-QHeaderView::section { background: #1d2634; color: #aebbd0; border: none; border-bottom: 1px solid #334054; padding: 10px; font-weight: 700; }
-QProgressBar { background: #263140; border: none; border-radius: 6px; text-align: center; height: 13px; color: #102721; font-weight: 700; }
-QProgressBar::chunk { background: #51d4b3; border-radius: 6px; }
-QSplitter::handle { background: #0e1118; width: 10px; }
-QScrollBar:vertical { background: #121925; width: 10px; }
-QScrollBar::handle:vertical { background: #3b4b60; border-radius: 5px; min-height: 20px; }
+QWidget { color: #eaf1fa; font-family: 'Segoe UI'; font-size: 10pt; }
+QMainWindow, QWidget#root, QWidget#column { background: #0b111b; }
+QScrollArea { background: #0b111b; border: none; }
+QLabel { background: transparent; }
+QFrame#header { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #152437,stop:0.55 #101c2d,stop:1 #0c1724); border-bottom: 1px solid #304153; }
+QFrame#panel { background: #151f2d; border: 1px solid #2a3b4e; border-radius: 18px; }
+QLabel#brandMark { background: qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #8bedcf,stop:1 #5daef2); color: #0d2931; border-radius: 14px; font-size: 14pt; font-weight: 800; }
+QLabel#brand { color: #f4f8fd; font-size: 22pt; font-weight: 750; }
+QLabel#eyebrow { color: #71cbbd; font-size: 8pt; font-weight: 750; }
+QLabel#section { color: #f2f7fc; font-size: 13pt; font-weight: 700; }
+QLabel#muted, QLabel#headerMeta { color: #98aabe; }
+QLabel#headerMeta { font-size: 9pt; }
+QLabel#pill { background: #1b403e; color: #90eacf; border: 1px solid #39746b; border-radius: 12px; padding: 7px 13px; font-weight: 700; }
+QLabel#pill[mode="running"] { background: #1c3a50; color: #9bd9fb; border-color: #477d9d; }
+QLabel#pill[mode="done"] { background: #204335; color: #a2ebbb; border-color: #4b8662; }
+QLabel#pill[mode="paused"] { background: #453529; color: #ffd09a; border-color: #85664b; }
+QFrame#emptyState { background: #111d2a; border: 1px dashed #3c5c67; border-radius: 16px; }
+QLabel#emptyIcon { color: #76dabc; font-size: 25pt; font-weight: 700; }
+QLabel#emptyTitle { color: #eff7fb; font-size: 14pt; font-weight: 700; }
+QLabel#emptyHint { color: #8fa6b6; font-size: 9pt; }
+QLineEdit, QTextEdit, QPlainTextEdit, QComboBox { background: #0f1825; color: #f0f6fb; border: 1px solid #34485e; border-radius: 10px; padding: 9px; selection-background-color: #287c77; }
+QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus, QComboBox:focus { border-color: #75dbbe; }
+QLineEdit#sourcePath { background: #10202a; border-color: #426b71; }
+QLineEdit#sourcePath:focus { border-color: #8beacb; }
+QComboBox::drop-down { border: none; width: 25px; }
+QComboBox QAbstractItemView { background: #1b2a3a; color: #f1f7fc; selection-background-color: #256d68; }
+QPushButton { background: #26384b; border: 1px solid #3c5368; border-radius: 10px; padding: 9px 14px; font-weight: 650; }
+QPushButton:hover { background: #314b62; border-color: #597891; }
+QPushButton:pressed { background: #1c2c3e; }
+QPushButton:disabled { color: #65788a; background: #1b2937; border-color: #2a3b4b; }
+QPushButton#primary { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #67dfbd,stop:1 #62cfe0); color: #0c2730; border: 1px solid #74e5ca; }
+QPushButton#primary:hover { background: #92efd6; border-color: #a3f4df; }
+QPushButton#primary:disabled { background: #28493f; color: #789c90; border-color: #365b50; }
+QPushButton#danger { background: #3b2937; border-color: #6f475d; color: #ffc0ce; }
+QPushButton#danger:hover { background: #543445; }
+QPushButton#danger:disabled { background: #2b2933; border-color: #493a48; color: #857681; }
+QPushButton#ghost { background: transparent; border-color: #385268; color: #c8d9e5; }
+QPushButton#ghost:hover { background: #203549; border-color: #69a89e; }
+QPushButton#ghost:disabled { background: transparent; border-color: #304354; color: #697e8e; }
+QTableWidget { background: #101a27; alternate-background-color: #152231; border: 1px solid #2b4053; border-radius: 12px; gridline-color: #25394a; selection-background-color: #245c58; selection-color: #f5fffb; }
+QTableWidget::item { padding: 7px; border-bottom: 1px solid #233545; }
+QHeaderView::section { background: #1b2c3d; color: #a9c1d0; border: none; border-bottom: 1px solid #365064; padding: 10px; font-size: 9pt; font-weight: 700; }
+QProgressBar { background: #233748; border: none; border-radius: 7px; text-align: center; height: 14px; color: #c9dce4; font-weight: 700; }
+QProgressBar::chunk { background: qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #58d7b1,stop:1 #6ccce3); border-radius: 7px; }
+QPlainTextEdit#log, QPlainTextEdit#preview, QTextEdit#command { font-family: Consolas; font-size: 9pt; }
+QSplitter::handle { background: #0b111b; width: 12px; }
+QScrollBar:vertical { background: #101a27; width: 10px; }
+QScrollBar::handle:vertical { background: #3e596d; border-radius: 5px; min-height: 22px; }
+QToolTip { background: #213549; color: #f0f6fb; border: 1px solid #4d7187; padding: 6px; }
 """
 
 
@@ -69,6 +90,22 @@ class Job:
     duration: float | None = None
 
 
+class CommandHighlighter(QSyntaxHighlighter):
+    def __init__(self, document):
+        super().__init__(document)
+        self.option_format = QTextCharFormat()
+        self.option_format.setForeground(QColor("#a6bcff"))
+        self.placeholder_format = QTextCharFormat()
+        self.placeholder_format.setForeground(QColor("#77e6c7"))
+        self.placeholder_format.setFontWeight(QFont.Weight.Bold)
+
+    def highlightBlock(self, text: str):
+        for match in re.finditer(r"(?<!\S)-[A-Za-z][\w:-]*", text):
+            self.setFormat(match.start(), len(match.group()), self.option_format)
+        for match in re.finditer(r"\{(?:input|output|audio)\}", text):
+            self.setFormat(match.start(), len(match.group()), self.placeholder_format)
+
+
 class DropTable(QTableWidget):
     files_dropped = Signal(list)
 
@@ -78,6 +115,31 @@ class DropTable(QTableWidget):
         self.viewport().setAcceptDrops(True)
         self.setDragDropMode(QAbstractItemView.DragDropMode.DropOnly)
         self.setDefaultDropAction(Qt.DropAction.CopyAction)
+        self.empty_state = QFrame(self.viewport())
+        self.empty_state.setObjectName("emptyState")
+        self.empty_state.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        empty_layout = QVBoxLayout(self.empty_state)
+        empty_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        empty_layout.setSpacing(7)
+        icon = label("↓", "emptyIcon")
+        icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        empty_layout.addWidget(icon)
+        title = label("Dateien hier ablegen", "emptyTitle")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        empty_layout.addWidget(title)
+        hint = label("Datei wählen oder oben einen Pfad einfügen", "emptyHint")
+        hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        empty_layout.addWidget(hint)
+        self.update_empty_state()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.empty_state.setGeometry(self.viewport().rect().adjusted(22, 22, -22, -22))
+
+    def update_empty_state(self):
+        self.empty_state.setVisible(self.rowCount() == 0)
+        if self.rowCount() == 0:
+            self.empty_state.raise_()
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls() and any(url.isLocalFile() for url in event.mimeData().urls()):
@@ -104,7 +166,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("FFVideoShift · FFmpeg Studio")
-        self.resize(1460, 900)
+        self.resize(1460, 960)
         self.setMinimumSize(1050, 720)
         self.settings = load_settings()
         self.presets = load_presets()
@@ -128,6 +190,7 @@ class MainWindow(QMainWindow):
 
     def _build_ui(self):
         root = QWidget()
+        root.setObjectName("root")
         self.setCentralWidget(root)
         layout = QVBoxLayout(root)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -136,14 +199,23 @@ class MainWindow(QMainWindow):
         header = QFrame()
         header.setObjectName("header")
         hl = QHBoxLayout(header)
-        hl.setContentsMargins(28, 19, 28, 19)
+        hl.setContentsMargins(28, 17, 28, 17)
+        brand_mark = label("FF", "brandMark")
+        brand_mark.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        brand_mark.setFixedSize(50, 50)
+        hl.addWidget(brand_mark)
+        hl.addSpacing(12)
         brand = QVBoxLayout()
-        brand.setSpacing(2)
-        brand.addWidget(label("FFVIDEOSHIFT  /  FFMPEG STUDIO", "eyebrow"))
-        brand.addWidget(label("Dein Workflow. Dein Format.", "title"))
+        brand.setSpacing(0)
+        brand.addWidget(label("FFVideoShift", "brand"))
+        brand.addWidget(label("VIDEO WORKSPACE  /  WINDOWS", "eyebrow"))
         hl.addLayout(brand)
         hl.addStretch()
-        self.header_status = label("BEREIT", "pill")
+        self.header_summary = label("0 Aufträge · 0 erledigt", "headerMeta")
+        hl.addWidget(self.header_summary)
+        hl.addSpacing(14)
+        self.header_status = label("●  BEREIT", "pill")
+        self.header_status.setProperty("mode", "ready")
         hl.addWidget(self.header_status)
         layout.addWidget(header)
 
@@ -152,10 +224,16 @@ class MainWindow(QMainWindow):
         layout.addWidget(splitter, 1)
 
         left = QWidget()
+        left.setObjectName("column")
         left_layout = QVBoxLayout(left)
-        left_layout.setContentsMargins(24, 22, 8, 24)
-        left_layout.setSpacing(16)
-        splitter.addWidget(left)
+        left_layout.setContentsMargins(24, 18, 8, 18)
+        left_layout.setSpacing(12)
+        left_scroll = QScrollArea()
+        left_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        left_scroll.setWidgetResizable(True)
+        left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        left_scroll.setWidget(left)
+        splitter.addWidget(left_scroll)
 
         queue_panel, queue_layout = panel()
         left_layout.addWidget(queue_panel, 5)
@@ -177,6 +255,7 @@ class MainWindow(QMainWindow):
         source_row = QHBoxLayout()
         source_row.addWidget(label("DATEIPFAD", "eyebrow"))
         self.source_path = QLineEdit()
+        self.source_path.setObjectName("sourcePath")
         self.source_path.setPlaceholderText("C:\\Video\\clip.mov oder \\\\Server\\Freigabe\\clip.mov einfügen")
         self.source_path.setClearButtonEnabled(True)
         self.source_path.returnPressed.connect(self.add_pasted_path)
@@ -201,12 +280,17 @@ class MainWindow(QMainWindow):
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setAlternatingRowColors(True)
+        self.table.setShowGrid(False)
         self.table.verticalHeader().setVisible(False)
-        self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.setColumnWidth(0, 210)
-        self.table.setColumnWidth(1, 185)
-        self.table.setColumnWidth(2, 90)
-        self.table.setMinimumHeight(280)
+        self.table.verticalHeader().setDefaultSectionSize(42)
+        self.table.horizontalHeader().setStretchLastSection(False)
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        self.table.setColumnWidth(1, 170)
+        self.table.setColumnWidth(2, 86)
+        self.table.setMinimumHeight(200)
         self.table.files_dropped.connect(self.add_files)
         self.table.itemSelectionChanged.connect(self.queue_selection_changed)
         queue_layout.addWidget(self.table, 1)
@@ -225,7 +309,7 @@ class MainWindow(QMainWindow):
         run_panel, run_layout = panel()
         left_layout.addWidget(run_panel, 2)
         run_layout.addWidget(label("02  /  VERARBEITUNG", "eyebrow"))
-        run_layout.addWidget(label("Bereit für den nächsten Export", "section"))
+        run_layout.addWidget(label("Export", "section"))
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
         self.progress.setValue(0)
@@ -233,29 +317,37 @@ class MainWindow(QMainWindow):
         self.progress_label = label("Wähle Dateien und starte die Warteschlange.", "muted")
         run_layout.addWidget(self.progress_label)
         run_buttons = QHBoxLayout()
-        self.start_button = button("▶  Warteschlange starten", self.start_queue, "primary")
-        self.stop_button = button("■  Aktuellen Auftrag stoppen", self.stop_current, "danger")
+        self.start_button = button("Warteschlange starten", self.start_queue, "primary")
+        self.stop_button = button("Auftrag stoppen", self.stop_current, "danger")
         self.stop_button.setEnabled(False)
         run_buttons.addWidget(self.start_button)
         run_buttons.addWidget(self.stop_button)
         run_buttons.addStretch()
         run_layout.addLayout(run_buttons)
+        run_layout.addWidget(label("LIVE-LOG  /  FFMPEG", "eyebrow"))
         self.log = QPlainTextEdit()
+        self.log.setObjectName("log")
         self.log.setReadOnly(True)
+        self.log.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         self.log.setPlaceholderText("FFmpeg-Meldungen erscheinen hier …")
         self.log.setMaximumBlockCount(500)
-        self.log.setMinimumHeight(110)
+        self.log.setMinimumHeight(80)
         run_layout.addWidget(self.log)
 
         right = QWidget()
+        right.setObjectName("column")
         right_layout = QVBoxLayout(right)
-        right_layout.setContentsMargins(8, 22, 24, 24)
-        right_layout.setSpacing(16)
-        splitter.addWidget(right)
+        right_layout.setContentsMargins(8, 18, 24, 18)
+        right_layout.setSpacing(12)
+        right_scroll = QScrollArea()
+        right_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        right_scroll.setWidgetResizable(True)
+        right_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        right_scroll.setWidget(right)
+        splitter.addWidget(right_scroll)
 
         binary_panel, binary_layout = panel()
         right_layout.addWidget(binary_panel)
-        binary_layout.addWidget(label("SETUP  /  BINARIES", "eyebrow"))
         binary_layout.addWidget(label("FFmpeg & ffprobe", "section"))
         self.ffmpeg_path = QLineEdit()
         self.ffmpeg_path.setPlaceholderText("Pfad zu ffmpeg.exe")
@@ -267,7 +359,7 @@ class MainWindow(QMainWindow):
         binary_layout.addLayout(path_row("FFPROBE", self.ffprobe_path, self.choose_ffprobe))
 
         preset_panel, preset_layout = panel()
-        right_layout.addWidget(preset_panel, 4)
+        right_layout.addWidget(preset_panel)
         preset_layout.addWidget(label("03  /  PRESETS", "eyebrow"))
         preset_header = QHBoxLayout()
         preset_header.addWidget(label("Befehl bearbeiten", "section"))
@@ -294,24 +386,30 @@ class MainWindow(QMainWindow):
         preset_layout.addLayout(details)
         preset_layout.addWidget(label("FFMPEG-BEFEHL · {input}, {output}, OPTIONAL {audio}", "eyebrow"))
         self.command_edit = QTextEdit()
-        self.command_edit.setMinimumHeight(130)
+        self.command_edit.setObjectName("command")
+        self.command_edit.setMinimumHeight(100)
+        self.command_edit.setMaximumHeight(140)
         self.command_edit.setFont(QFont("Consolas", 10))
+        self.command_highlighter = CommandHighlighter(self.command_edit.document())
         preset_layout.addWidget(self.command_edit, 1)
-        preset_layout.addWidget(label("Änderungen mit „Speichern“ übernehmen. Neue Aufträge nutzen das gewählte Preset.", "muted"))
+        self.command_edit.setToolTip("Änderungen mit Speichern übernehmen. Neue Aufträge nutzen das gewählte Preset.")
         preset_actions = QHBoxLayout()
         preset_actions.addWidget(button("Speichern", self.save_current_preset, "primary"))
         preset_actions.addWidget(button("Neu", self.new_preset))
         preset_actions.addWidget(button("Importieren", self.import_preset))
         preset_actions.addWidget(button("Löschen", self.delete_preset, "ghost"))
         preset_layout.addLayout(preset_actions)
+        preset_layout.addWidget(label("BEFEHLSVORSCHAU  /  AUSGEWÄHLTER AUFTRAG", "eyebrow"))
         self.preview = QPlainTextEdit()
+        self.preview.setObjectName("preview")
         self.preview.setReadOnly(True)
+        self.preview.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         self.preview.setPlaceholderText("Befehlsvorschau für den ausgewählten Auftrag …")
-        self.preview.setMaximumHeight(87)
+        self.preview.setMaximumHeight(70)
         preset_layout.addWidget(self.preview)
 
         media_panel, media_layout = panel()
-        right_layout.addWidget(media_panel, 2)
+        right_layout.addWidget(media_panel)
         media_layout.addWidget(label("04  /  MEDIENINFO", "eyebrow"))
         media_layout.addWidget(label("Technische Daten", "section"))
         self.media_info = QLabel("Wähle eine Datei in der Warteschlange.")
@@ -320,6 +418,7 @@ class MainWindow(QMainWindow):
         self.media_info.setTextFormat(Qt.TextFormat.RichText)
         self.media_info.setAlignment(Qt.AlignmentFlag.AlignTop)
         media_layout.addWidget(self.media_info, 1)
+        right_layout.addStretch(1)
         splitter.setSizes([890, 550])
 
     def _load_binaries(self):
@@ -497,6 +596,8 @@ class MainWindow(QMainWindow):
             self.table.setCurrentCell(len(self.jobs) - 1, 0)
             self.table.selectRow(len(self.jobs) - 1)
             self.log.appendPlainText(f"{added} Datei(en) zur Warteschlange hinzugefügt.")
+            if not self.queue_running:
+                self.set_header_status("BEREIT", "ready")
         if failures:
             details = "\n".join(failures[:3])
             if len(failures) > 3:
@@ -522,12 +623,21 @@ class MainWindow(QMainWindow):
             self.table.setCurrentCell(selected, 0)
             self.table.selectRow(selected)
         self.table.blockSignals(False)
+        self.table.update_empty_state()
         selected_rows = {item.row() for item in self.table.selectedItems()}
         self.change_audio_button.setEnabled(any(self.jobs[row].status == "Bereit" and requires_audio(self.jobs[row].preset) for row in selected_rows))
         self.open_folder_button.setEnabled(self.selected_job() is not None)
         self.count_label.setText(f"{len(self.jobs)} Auftrag{'e' if len(self.jobs) != 1 else ''}")
+        finished = sum(job.status == "Fertig" for job in self.jobs)
+        self.header_summary.setText(f"{len(self.jobs)} Aufträge · {finished} erledigt")
         self.start_button.setEnabled(any(job.status == "Bereit" for job in self.jobs) and not self.queue_running)
         self.update_preview()
+
+    def set_header_status(self, text: str, mode: str):
+        self.header_status.setText(f"●  {text}")
+        self.header_status.setProperty("mode", mode)
+        self.header_status.style().unpolish(self.header_status)
+        self.header_status.style().polish(self.header_status)
 
     def selected_job(self) -> Job | None:
         row = self.table.currentRow()
@@ -654,7 +764,7 @@ class MainWindow(QMainWindow):
         if not job:
             self.queue_running = False
             self.stop_button.setEnabled(False)
-            self.header_status.setText("FERTIG")
+            self.set_header_status("FERTIG", "done")
             self.progress_label.setText("Warteschlange abgeschlossen.")
             self.refresh_queue()
             return
@@ -672,7 +782,7 @@ class MainWindow(QMainWindow):
         self.active_job = job
         job.status = "Läuft"
         self.cancel_requested = False
-        self.header_status.setText("EXPORT LÄUFT")
+        self.set_header_status("EXPORT LÄUFT", "running")
         self.progress.setRange(0, 100 if job.duration else 0)
         self.progress.setValue(0)
         self.progress_label.setText(f"{job.source.name}  →  {job.output.name}")
@@ -733,7 +843,7 @@ class MainWindow(QMainWindow):
         if self.queue_running:
             self.run_next()
         else:
-            self.header_status.setText("ANGEHALTEN")
+            self.set_header_status("ANGEHALTEN", "paused")
             self.progress_label.setText("Warteschlange angehalten.")
 
     def _remove_partial(self, job: Job):
@@ -782,8 +892,8 @@ def panel() -> tuple[QFrame, QVBoxLayout]:
     frame = QFrame()
     frame.setObjectName("panel")
     layout = QVBoxLayout(frame)
-    layout.setContentsMargins(18, 18, 18, 18)
-    layout.setSpacing(10)
+    layout.setContentsMargins(16, 16, 16, 16)
+    layout.setSpacing(8)
     return frame, layout
 
 
@@ -800,8 +910,21 @@ def format_time(seconds: float) -> str:
     return f"{value // 3600:02d}:{value // 60 % 60:02d}:{value % 60:02d}"
 
 
+def ensure_fonts():
+    """Load Windows UI fonts when Qt cannot enumerate system fonts."""
+    font_dir = Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts"
+    available = set(QFontDatabase.families())
+    for family, filename in (("Segoe UI", "segoeui.ttf"), ("Consolas", "consola.ttf")):
+        if family not in available:
+            font_file = font_dir / filename
+            if font_file.is_file():
+                QFontDatabase.addApplicationFont(str(font_file))
+
+
 def main() -> int:
     app = QApplication(sys.argv)
+    ensure_fonts()
+    app.setFont(QFont("Segoe UI", 10))
     app.setStyle("Fusion")
     app.setStyleSheet(STYLE)
     try:
