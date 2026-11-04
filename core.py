@@ -16,6 +16,19 @@ SAFE_SUFFIX = re.compile(r"^_[A-Za-z0-9][A-Za-z0-9_-]*$")
 SAFE_EXTENSION = re.compile(r"^[A-Za-z0-9]{2,8}$")
 
 
+def parse_source_path(raw: str) -> Path:
+    """Accept an absolute Windows or UNC path pasted from Explorer."""
+    value = raw.strip()
+    if len(value) >= 2 and value[0] == value[-1] == '"':
+        value = value[1:-1]
+    if not value:
+        raise ValueError("Bitte einen Dateipfad einfügen.")
+    path = Path(value)
+    if not path.is_absolute():
+        raise ValueError("Bitte einen vollständigen Pfad angeben, z. B. C:\\Video\\clip.mov oder \\\\Server\\Freigabe\\clip.mov.")
+    return path
+
+
 def split_command(command: str) -> list[str]:
     """Parse a pasted FFmpeg command, respecting quoted Windows paths."""
     if os.name == "nt":

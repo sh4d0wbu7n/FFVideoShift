@@ -13,7 +13,7 @@ In diesem Projekt ist der Python-Interpreter `C:\venv\python3_12_10\python.exe` 
 ## Workflow
 
 1. Preset wählen oder einen FFmpeg-Befehl importieren. Bei **Audio ersetzen** die zusätzliche Audiodatei im eingeblendeten Feld wählen.
-2. Dateien per Drag-and-drop auf die Dateiliste ziehen oder über **Dateien hinzufügen** wählen. Jede Datei erhält das gerade ausgewählte Preset und gegebenenfalls die gewählte Ersatz-Audiodatei. Änderungen am Preset werden beim Hinzufügen gespeichert. Für einzelne wartende Aufträge kann die Audiodatei mit **Audio ändern** ausgetauscht werden.
+2. Dateien per Drag-and-drop auf die Dateiliste ziehen, über **Dateien hinzufügen** wählen oder einen vollständigen Dateipfad in das Feld **Dateipfad** einfügen und Enter drücken. Auch UNC-Pfade wie `\\Server\Freigabe\Ordner\clip.mov` werden unterstützt. Jede Datei erhält das gerade ausgewählte Preset und gegebenenfalls die gewählte Ersatz-Audiodatei. Änderungen am Preset werden beim Hinzufügen gespeichert. Für einzelne wartende Aufträge kann die Audiodatei mit **Audio ändern** ausgetauscht werden.
 3. Einen Auftrag anklicken, um Medieninfos und die vollständige Befehlsvorschau zu sehen.
 4. **Warteschlange starten**. Aufträge laufen nacheinander. **Aktuellen Auftrag stoppen** beendet den laufenden FFmpeg-Prozess und hält die Warteschlange an.
 

@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core import PROJECT_DIR, build_command, import_command, load_presets, plan_output, requires_audio, validate_preset
+from core import PROJECT_DIR, build_command, import_command, load_presets, parse_source_path, plan_output, requires_audio, validate_preset
 
 TEST_TMP = PROJECT_DIR / ".tmp"
 TEST_TMP.mkdir(exist_ok=True)
@@ -15,6 +15,17 @@ SAMPLE = ('ffmpeg -itsscale 1.0416666666666667 '
 
 
 class PresetTests(unittest.TestCase):
+    def test_pasted_unc_path_keeps_network_location(self):
+        unc = r"\\192.168.70.11\BackupKI\production\01_projects\metro36\Layouts\ShotRack\media\SC0001\S0020\SC0001_S0020_untitled_TK_002.mov"
+        source = parse_source_path(f'"{unc}"')
+        self.assertEqual(str(source), unc)
+        self.assertEqual(source.name, "SC0001_S0020_untitled_TK_002.mov")
+        self.assertEqual(str(source.anchor), "\\\\192.168.70.11\\BackupKI\\")
+
+    def test_pasted_path_must_be_absolute(self):
+        with self.assertRaises(ValueError):
+            parse_source_path("clip.mov")
+
     def test_import_requested_command(self):
         preset = import_command(SAMPLE)
         self.assertEqual(preset["suffix"], "_24fps_v2")

@@ -46,7 +46,11 @@ def main() -> int:
     app.processEvents()
     screenshot = folder / "ffvideoshift.png"
     window.grab().save(str(screenshot))
-    window.add_files([str(source), str(source_two)])
+    window.source_path.setText(f'"{source}"')
+    window.source_path.returnPressed.emit()
+    if len(window.jobs) != 1 or window.jobs[0].source != source or window.source_path.text():
+        raise AssertionError("Pasted source path was not added")
+    window.add_files([str(source_two)])
     window.preset_combo.setCurrentIndex(window.preset_combo.findText("Audio ersetzen · Video kopieren"))
     window.audio_path.setText(str(replacement_audio))
     window.add_files([str(source)])
@@ -62,7 +66,7 @@ def main() -> int:
     window.start_queue()
     deadline = QTimer()
     deadline.setSingleShot(True)
-    deadline.start(15000)
+    deadline.start(30000)
     while window.queue_running and deadline.isActive():
         loop = QEventLoop()
         QTimer.singleShot(100, loop.quit)

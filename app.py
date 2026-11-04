@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from core import (
-    build_command, import_command, load_presets, load_settings, plan_output,
+    build_command, import_command, load_presets, load_settings, parse_source_path, plan_output,
     requires_audio, save_presets, save_settings, subprocess_command, validate_preset,
 )
 
@@ -169,6 +169,16 @@ class MainWindow(QMainWindow):
         queue_header.addWidget(add_button)
         queue_layout.addLayout(queue_header)
         queue_layout.addWidget(label("Dateien aus dem Explorer hierher ziehen oder über den Button auswählen.", "muted"))
+
+        source_row = QHBoxLayout()
+        source_row.addWidget(label("DATEIPFAD", "eyebrow"))
+        self.source_path = QLineEdit()
+        self.source_path.setPlaceholderText("C:\\Video\\clip.mov oder \\\\Server\\Freigabe\\clip.mov einfügen")
+        self.source_path.setClearButtonEnabled(True)
+        self.source_path.returnPressed.connect(self.add_pasted_path)
+        source_row.addWidget(self.source_path, 1)
+        source_row.addWidget(button("Pfad hinzufügen", self.add_pasted_path, "ghost"))
+        queue_layout.addLayout(source_row)
 
         self.audio_input_row = QWidget()
         audio_layout = QHBoxLayout(self.audio_input_row)
@@ -417,6 +427,15 @@ class MainWindow(QMainWindow):
         paths, _ = QFileDialog.getOpenFileNames(self, "Mediendateien auswählen", "", "Mediendateien (*.*)")
         self.add_files(paths)
 
+    def add_pasted_path(self):
+        try:
+            source = parse_source_path(self.source_path.text())
+        except ValueError as exc:
+            QMessageBox.warning(self, "Pfad prüfen", str(exc))
+            return
+        if self.add_files([str(source)]):
+            self.source_path.clear()
+
     def choose_audio(self):
         path, _ = QFileDialog.getOpenFileName(self, "Ersatz-Audiodatei auswählen", self.audio_path.text(), "Audiodateien (*.wav *.mp3 *.m4a *.aac *.flac *.aif *.aiff *.ogg);;Alle Dateien (*)")
         if path:
@@ -438,12 +457,12 @@ class MainWindow(QMainWindow):
 
     def add_files(self, paths: list[str]):
         if not paths:
-            return
+            return 0
         index = self.preset_combo.currentIndex()
         if index < 0:
-            return
+            return 0
         if self._edited_preset() != self.presets[index] and not self.save_current_preset():
-            return
+            return 0
         preset = copy.deepcopy(self.presets[index])
         audio = None
         if requires_audio(preset):
@@ -452,14 +471,20 @@ class MainWindow(QMainWindow):
                 self.choose_audio()
                 audio = Path(self.audio_path.text().strip().strip('"'))
                 if not audio.is_file():
-                    return
+                    return 0
         reserved = {job.output for job in self.jobs}
         added = 0
+        failures = []
         for raw in paths:
             source = Path(raw)
-            if not source.is_file():
+            try:
+                if not source.is_file():
+                    failures.append(str(source))
+                    continue
+                output = plan_output(source, preset, reserved)
+            except (OSError, ValueError) as exc:
+                failures.append(f"{source} ({exc})")
                 continue
-            output = plan_output(source, preset, reserved)
             reserved.add(output)
             self.jobs.append(Job(source, copy.deepcopy(preset), output, audio))
             added += 1
@@ -468,6 +493,12 @@ class MainWindow(QMainWindow):
             self.table.setCurrentCell(len(self.jobs) - 1, 0)
             self.table.selectRow(len(self.jobs) - 1)
             self.log.appendPlainText(f"{added} Datei(en) zur Warteschlange hinzugefügt.")
+        if failures:
+            details = "\n".join(failures[:3])
+            if len(failures) > 3:
+                details += f"\n… und {len(failures) - 3} weitere"
+            QMessageBox.warning(self, "Datei nicht erreichbar", f"Diese Datei(en) konnten nicht hinzugefügt werden:\n{details}")
+        return added
 
     def refresh_queue(self):
         selected = self.table.currentRow()
