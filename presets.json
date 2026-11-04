@@ -1,0 +1,26 @@
+[
+  {
+    "name": "25 → 24 fps · Timescale",
+    "suffix": "_24fps_timescale24000",
+    "extension": "mov",
+    "command": "ffmpeg -itsscale 1.0416666666666667 -i \"{input}\" -map 0:v:0 -c:v copy -an -video_track_timescale 24000 -map_metadata -1 \"{output}\""
+  },
+  {
+    "name": "H.264 · hohe Qualität",
+    "suffix": "_h264_crf18",
+    "extension": "mp4",
+    "command": "ffmpeg -i \"{input}\" -map 0:v:0 -map 0:a? -c:v libx264 -crf 18 -preset medium -c:a aac -b:a 192k -movflags +faststart \"{output}\""
+  },
+  {
+    "name": "MP4 · Stream kopieren",
+    "suffix": "_remux",
+    "extension": "mp4",
+    "command": "ffmpeg -i \"{input}\" -map 0 -c copy \"{output}\""
+  },
+  {
+    "name": "Audio · MP3 320k",
+    "suffix": "_audio_320k",
+    "extension": "mp3",
+    "command": "ffmpeg -i \"{input}\" -vn -c:a libmp3lame -b:a 320k \"{output}\""
+  }
+]

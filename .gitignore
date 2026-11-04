@@ -1,0 +1,9 @@
+.venv/
+.pip-cache/
+.tmp/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+settings.json
+*.log
+test-media/
