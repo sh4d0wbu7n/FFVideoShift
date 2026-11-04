@@ -1,12 +1,12 @@
-# Frameflow · FFmpeg Studio
+# FFVideoShift · FFmpeg Studio
 
 Eine Windows-GUI für wiederkehrende FFmpeg-Workflows: editierbare Befehls-Presets, Drag-and-drop, Warteschlange, Fortschritt und Medieninfos. Die App startet über `start.bat` und wird nicht als eigene `.exe` gebaut.
 
 ## Start
 
-1. Python 3.12 und FFmpeg/ffprobe bereitstellen. Die Programme können an beliebigen Orten liegen; Frameflow verändert sie nicht.
+1. Python 3.12 und FFmpeg/ffprobe bereitstellen. Die Programme können an beliebigen Orten liegen; FFVideoShift verändert sie nicht.
 2. `start.bat` doppelklicken. Beim ersten Start wird `.venv` **im Projektordner** angelegt und PySide6 dort installiert. Auch der pip-Cache liegt im Projektordner.
-3. In der App `ffmpeg.exe` und `ffprobe.exe` auswählen. Liegen sie im `PATH`, trägt Frameflow sie beim ersten Start automatisch ein. Bei Auswahl von `ffmpeg.exe` wird eine `ffprobe.exe` im selben Ordner automatisch übernommen.
+3. In der App `ffmpeg.exe` und `ffprobe.exe` auswählen. Liegen sie im `PATH`, trägt FFVideoShift sie beim ersten Start automatisch ein. Bei Auswahl von `ffmpeg.exe` wird eine `ffprobe.exe` im selben Ordner automatisch übernommen.
 
 In diesem Projekt ist der Python-Interpreter `C:\venv\python3_12_10\python.exe` hinterlegt. Nach der ersten Einrichtung verwendet der Launcher `.venv\Scripts\pythonw.exe` aus dem Projekt. Bei einer anderen Python-Installation muss `BASE_PY` in `start.bat` angepasst werden.
 
@@ -37,13 +37,13 @@ ffmpeg -itsscale 1.0416666666666667 -i "{input}" -map 0:v:0 -c:v copy -an -video
 ffmpeg -itsscale 1.0416666666666667 -i "im-grunde-mord_SC0002_S0130_v003_25_fps.mov" -map 0:v:0 -c:v copy -an -video_track_timescale 24000 -map_metadata -1 "output_24fps_v2.mov"
 ```
 
-Frameflow ersetzt dabei die konkrete Eingabe und Ausgabe durch Platzhalter. `output_24fps_v2.mov` ergibt automatisch den Dateizusatz `_24fps_v2` und die Endung `mov`. Beides kann anschließend bearbeitet werden.
+FFVideoShift ersetzt dabei die konkrete Eingabe und Ausgabe durch Platzhalter. `output_24fps_v2.mov` ergibt automatisch den Dateizusatz `_24fps_v2` und die Endung `mov`. Beides kann anschließend bearbeitet werden.
 
 Presets unterstützen derzeit **eine Eingabedatei pro Auftrag**. Zusätzliche `-i`-Eingaben und komplexe Filtergraphen mit externen Dateien können später gezielt ergänzt werden.
 
 ## Medieninfos und Fortschritt
 
-`ffprobe` liefert Container, Dauer, Größe und Stream-Daten wie Codec, Auflösung, Bildrate und Audiokanäle. Während der Verarbeitung zeigt Frameflow die FFmpeg-Meldungen und, sobald die Dauer für den ausgewählten Auftrag bekannt ist, einen prozentualen Fortschritt. Ohne bekannte Dauer läuft eine Aktivitätsanzeige.
+`ffprobe` liefert Container, Dauer, Größe und Stream-Daten wie Codec, Auflösung, Bildrate und Audiokanäle. Während der Verarbeitung zeigt FFVideoShift die FFmpeg-Meldungen und, sobald die Dauer für den ausgewählten Auftrag bekannt ist, einen prozentualen Fortschritt. Ohne bekannte Dauer läuft eine Aktivitätsanzeige.
 
 ## Projektstruktur
 
@@ -66,4 +66,4 @@ python -m pip install -r requirements.txt
 python app.py
 ```
 
-FFmpeg und ffprobe selbst werden nicht durch Frameflow installiert. Der Code steht unter der MIT-Lizenz.
+FFmpeg und ffprobe selbst werden nicht durch FFVideoShift installiert. Der Code steht unter der MIT-Lizenz.

@@ -1,4 +1,4 @@
-"""Frameflow: a local Windows FFmpeg workbench."""
+"""FFVideoShift: a local Windows FFmpeg workbench."""
 
 from __future__ import annotations
 
@@ -102,7 +102,7 @@ class DropTable(QTableWidget):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Frameflow · FFmpeg Studio")
+        self.setWindowTitle("FFVideoShift · FFmpeg Studio")
         self.resize(1460, 900)
         self.setMinimumSize(1050, 720)
         self.settings = load_settings()
@@ -138,7 +138,7 @@ class MainWindow(QMainWindow):
         hl.setContentsMargins(28, 19, 28, 19)
         brand = QVBoxLayout()
         brand.setSpacing(2)
-        brand.addWidget(label("FRAMEFLOW  /  FFMPEG STUDIO", "eyebrow"))
+        brand.addWidget(label("FFVIDEOSHIFT  /  FFMPEG STUDIO", "eyebrow"))
         brand.addWidget(label("Dein Workflow. Dein Format.", "title"))
         hl.addLayout(brand)
         hl.addStretch()
@@ -709,7 +709,7 @@ def main() -> int:
     try:
         window = MainWindow()
     except (OSError, ValueError, json.JSONDecodeError) as exc:
-        QMessageBox.critical(None, "Frameflow kann nicht starten", str(exc))
+        QMessageBox.critical(None, "FFVideoShift kann nicht starten", str(exc))
         return 1
     window.show()
     return app.exec()

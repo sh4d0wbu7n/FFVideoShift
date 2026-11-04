@@ -37,7 +37,7 @@ def main() -> int:
     window = MainWindow()
     window.show()
     app.processEvents()
-    screenshot = folder / "frameflow.png"
+    screenshot = folder / "ffvideoshift.png"
     window.grab().save(str(screenshot))
     window.add_files([str(source), str(source_two)])
     app.processEvents()
