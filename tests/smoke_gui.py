@@ -10,7 +10,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from PySide6.QtCore import QEventLoop, QTimer
+from PySide6.QtCore import QEventLoop, QItemSelectionModel, QTimer
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QApplication
 
@@ -45,6 +45,8 @@ def main() -> int:
     app.setFont(QFont("Segoe UI", 10))
     app.setStyle("Fusion")
     app.setStyleSheet(STYLE)
+    settings_saver = patch("app.save_settings")
+    settings_saver.start()
     window = MainWindow()
     window.show()
     app.processEvents()
@@ -57,12 +59,43 @@ def main() -> int:
     app.processEvents()
     screenshot = folder / "ffvideoshift.png"
     window.grab().save(str(screenshot))
+    prores_index = window.preset_combo.findText("ProRes HQ · Schnittmaster")
+    fast_index = window.preset_combo.findText("H.264 · schnell")
+    if prores_index < 0 or fast_index < 0:
+        raise AssertionError("Required presets missing")
+    window.preset_combo.setCurrentIndex(prores_index)
     window.source_path.setText(f'"{source}"')
     window.source_path.returnPressed.emit()
     if len(window.jobs) != 1 or window.jobs[0].source != source or window.source_path.text():
         raise AssertionError("Pasted source path was not added")
     if window.table.empty_state.isVisible():
         raise AssertionError("Empty queue hint remained over a queued file")
+    window.job_preset_combo.setCurrentIndex(fast_index)
+    if window.jobs[0].preset["name"] != "H.264 · schnell" or window.jobs[0].output.suffix != ".mp4":
+        raise AssertionError("Changing preset after adding source did not update queued job")
+    with patch("app.save_presets") as save_presets:
+        window.preset_combo.setCurrentIndex(fast_index)
+        original_suffix = window.preset_suffix.text()
+        window.preset_suffix.setText("_h264_fast_smoke")
+        if not window.save_current_preset():
+            raise AssertionError("Preset could not be saved after adding source")
+        if "_h264_fast_smoke" not in window.jobs[0].output.name:
+            raise AssertionError("Saved preset did not update queued output")
+        window.preset_suffix.setText(original_suffix)
+        if not window.save_current_preset():
+            raise AssertionError("Preset reset failed")
+        if "_h264_fast_smoke" in window.jobs[0].output.name:
+            raise AssertionError("Preset reset did not update queued output")
+        if save_presets.call_count != 2:
+            raise AssertionError("Preset save was not invoked twice")
+    with patch("app.save_presets") as save_presets:
+        window.preset_suffix.setText("_h264_fast_auto")
+        window.preset_combo.setCurrentIndex(prores_index)
+        if save_presets.call_count != 1 or "_h264_fast_auto" not in window.jobs[0].output.name:
+            raise AssertionError("Switching editor presets discarded an unsaved change")
+        window.preset_combo.setCurrentIndex(fast_index)
+        window.preset_suffix.setText(original_suffix)
+        window.save_current_preset()
     window.trim_start_edit.setText("00:00:00.200")
     window.trim_end_edit.setText("00:00:00.700")
     window.apply_trim()
@@ -80,6 +113,26 @@ def main() -> int:
         window.open_output_folder()
         open_folder.assert_called_once_with(str(window.jobs[0].output.parent))
     window.add_files([str(source_two)])
+    with patch("app.save_presets"):
+        window.preset_suffix.setText("_h264_fast_batch")
+        if not window.save_current_preset():
+            raise AssertionError("Preset could not update multiple queued jobs")
+        if not all("_h264_fast_batch" in job.output.name for job in window.jobs[:2]):
+            raise AssertionError("Preset edit did not reach all waiting jobs")
+        window.preset_suffix.setText(original_suffix)
+        if not window.save_current_preset():
+            raise AssertionError("Batch preset reset failed")
+    selection = window.table.selectionModel()
+    selection.select(window.table.model().index(0, 0), QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows)
+    selection.select(window.table.model().index(1, 0), QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows)
+    high_index = window.job_preset_combo.findText("H.264 · hohe Qualität")
+    window.job_preset_combo.setCurrentIndex(high_index)
+    if not all(job.preset["name"] == "H.264 · hohe Qualität" for job in window.jobs[:2]):
+        raise AssertionError("Multi-selection preset change did not update both jobs")
+    if len({item.row() for item in window.table.selectedItems()}) != 2:
+        raise AssertionError("Multi-selection was lost after updating queue")
+    selection.clearSelection()
+    window.table.selectRow(1)
     window.preset_combo.setCurrentIndex(window.preset_combo.findText("Audio ersetzen · Video kopieren"))
     window.audio_path.setText(str(replacement_audio))
     window.add_files([str(source)])
@@ -112,11 +165,20 @@ def main() -> int:
         return 1
     ffprobe = shutil.which("ffprobe")
     if ffprobe:
+        result = subprocess.run([ffprobe, "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name", "-of", "default=noprint_wrappers=1:nokey=1", str(window.jobs[0].output)], capture_output=True, text=True, check=True)
+        if result.stdout.strip() != "h264":
+            raise AssertionError(f"Wrong codec after changing queued preset: {result.stdout.strip()}")
         for job in (window.jobs[0], window.jobs[2]):
             result = subprocess.run([ffprobe, "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", str(job.output)], capture_output=True, text=True, check=True)
             if not 0.35 <= float(result.stdout.strip()) <= 0.75:
                 raise AssertionError(f"Unexpected trimmed duration: {result.stdout.strip()}")
     window.close()
+    with patch("app.load_settings", return_value={"last_preset_name": "H.264 · schnell"}):
+        reopened = MainWindow()
+        if reopened.preset_combo.currentText() != "H.264 · schnell":
+            raise AssertionError("Last selected preset was not restored")
+        reopened.close()
+    settings_saver.stop()
     return 0
 
 

@@ -12,8 +12,8 @@ In diesem Projekt ist der Python-Interpreter `C:\venv\python3_12_10\python.exe` 
 
 ## Workflow
 
-1. Preset wählen oder einen FFmpeg-Befehl importieren. Bei **Audio ersetzen** die zusätzliche Audiodatei im eingeblendeten Feld wählen.
-2. Dateien per Drag-and-drop auf die Dateiliste ziehen, über **Dateien hinzufügen** wählen oder einen vollständigen Dateipfad in das Feld **Dateipfad** einfügen und Enter drücken. Auch UNC-Pfade wie `\\Server\Freigabe\Ordner\clip.mov` werden unterstützt. Jede Datei erhält das gerade ausgewählte Preset und gegebenenfalls die gewählte Ersatz-Audiodatei. Änderungen am Preset werden beim Hinzufügen gespeichert. Für einzelne wartende Aufträge kann die Audiodatei mit **Audio ändern** ausgetauscht werden.
+1. Unter **Preset für neue Dateien / Editor** ein Preset wählen oder einen FFmpeg-Befehl importieren. Die letzte Auswahl wird für den nächsten App-Start gemerkt. Bei **Audio ersetzen** die zusätzliche Audiodatei im eingeblendeten Feld wählen.
+2. Dateien per Drag-and-drop auf die Dateiliste ziehen, über **Dateien hinzufügen** wählen oder einen vollständigen Dateipfad in das Feld **Dateipfad** einfügen und Enter drücken. Auch UNC-Pfade wie `\\Server\Freigabe\Ordner\clip.mov` werden unterstützt. Jede Datei erhält das gerade ausgewählte Preset und gegebenenfalls die gewählte Ersatz-Audiodatei. Nach dem Hinzufügen können markierte wartende Aufträge mit **Preset für ausgewählte Aufträge** umgestellt werden; Ausgabeformat und Dateiname werden dabei angepasst. Für einzelne wartende Aufträge kann die Audiodatei mit **Audio ändern** ausgetauscht werden.
 3. Einen Auftrag anklicken, um Medieninfos und die vollständige Befehlsvorschau zu sehen. Im Bereich **In & Out** optional Start und Ende eingeben und **Bereich übernehmen** klicken. Das funktioniert für wartende Aufträge. **Ganze Quelle** setzt den Trim zurück.
 4. **Warteschlange starten**. Aufträge laufen nacheinander. **Aktuellen Auftrag stoppen** beendet den laufenden FFmpeg-Prozess und hält die Warteschlange an.
 5. Einen Auftrag auswählen und **Ordner öffnen** klicken, um seinen Ausgabeordner im Windows Explorer zu öffnen. Das funktioniert auch vor dem Export.
@@ -24,7 +24,7 @@ Trim-Zeiten können als Sekunden, `MM:SS` oder `HH:MM:SS.mmm` eingegeben werden;
 
 ## Presets
 
-Die zehn mitgelieferten Presets stehen in [`presets.json`](presets.json). Der Editor in der App speichert Änderungen dort. `settings.json` enthält nur lokale Binärpfade und wird von Git ignoriert.
+Die zehn mitgelieferten Presets stehen in [`presets.json`](presets.json). Der Editor in der App speichert Änderungen dort und übernimmt sie auch für wartende Aufträge, die dieses Preset verwenden. Beim Wechsel zu einem anderen Preset werden gültige, noch nicht gespeicherte Änderungen automatisch gespeichert. `settings.json` enthält lokale Binärpfade und die zuletzt gewählte Preset-Auswahl; die Datei wird von Git ignoriert.
 
 | Preset | Ausgabe | Zweck |
 | --- | --- | --- |

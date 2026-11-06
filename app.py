@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from html import escape
 from pathlib import Path
 
-from PySide6.QtCore import QProcess, QTimer, Qt, Signal
+from PySide6.QtCore import QItemSelectionModel, QProcess, QTimer, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QSyntaxHighlighter, QTextCharFormat
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout,
@@ -188,7 +188,9 @@ class MainWindow(QMainWindow):
         self.ffprobe_process.finished.connect(self.probe_finished)
         self.ffprobe_process.errorOccurred.connect(self.probe_error)
         self._build_ui()
-        self._populate_presets()
+        selected_name = self.settings.get("last_preset_name")
+        selected_index = next((i for i, preset in enumerate(self.presets) if preset["name"] == selected_name), 0)
+        self._populate_presets(selected_index)
         self._load_binaries()
         self.refresh_queue()
 
@@ -298,6 +300,13 @@ class MainWindow(QMainWindow):
         self.table.files_dropped.connect(self.add_files)
         self.table.itemSelectionChanged.connect(self.queue_selection_changed)
         queue_layout.addWidget(self.table, 1)
+        assignment = QHBoxLayout()
+        assignment.addWidget(label("PRESET FÜR AUSGEWÄHLTE AUFTRÄGE", "eyebrow"))
+        self.job_preset_combo = QComboBox()
+        self.job_preset_combo.setToolTip("Preset für markierte wartende Aufträge ändern")
+        self.job_preset_combo.currentIndexChanged.connect(self.assign_preset_to_selected)
+        assignment.addWidget(self.job_preset_combo, 1)
+        queue_layout.addLayout(assignment)
         q_actions = QHBoxLayout()
         q_actions.addWidget(button("Auswahl entfernen", self.remove_selected, "ghost"))
         q_actions.addWidget(button("Erledigte löschen", self.clear_finished, "ghost"))
@@ -399,8 +408,9 @@ class MainWindow(QMainWindow):
         preset_header.addWidget(label("Befehl bearbeiten", "section"))
         preset_header.addStretch()
         preset_layout.addLayout(preset_header)
+        preset_layout.addWidget(label("PRESET FÜR NEUE DATEIEN / EDITOR", "eyebrow"))
         self.preset_combo = QComboBox()
-        self.preset_combo.currentIndexChanged.connect(self.show_preset)
+        self.preset_combo.currentIndexChanged.connect(self.editor_preset_changed)
         preset_layout.addWidget(self.preset_combo)
         details = QGridLayout()
         details.setHorizontalSpacing(10)
@@ -426,7 +436,7 @@ class MainWindow(QMainWindow):
         self.command_edit.setFont(QFont("Consolas", 10))
         self.command_highlighter = CommandHighlighter(self.command_edit.document())
         preset_layout.addWidget(self.command_edit, 1)
-        self.command_edit.setToolTip("Änderungen mit Speichern übernehmen. Neue Aufträge nutzen das gewählte Preset.")
+        self.command_edit.setToolTip("Änderungen mit Speichern übernehmen. Wartende Aufträge mit diesem Preset werden aktualisiert.")
         preset_actions = QHBoxLayout()
         preset_actions.addWidget(button("Speichern", self.save_current_preset, "primary"))
         preset_actions.addWidget(button("Neu", self.new_preset))
@@ -465,7 +475,30 @@ class MainWindow(QMainWindow):
         self.preset_combo.addItems([p["name"] for p in self.presets])
         self.preset_combo.setCurrentIndex(min(index, len(self.presets) - 1))
         self.preset_combo.blockSignals(False)
+        self.job_preset_combo.blockSignals(True)
+        self.job_preset_combo.clear()
+        self.job_preset_combo.addItems([p["name"] for p in self.presets])
+        self.job_preset_combo.blockSignals(False)
+        self._active_editor_index = self.preset_combo.currentIndex()
         self.show_preset(self.preset_combo.currentIndex())
+        self.sync_job_preset()
+        if self._active_editor_index >= 0:
+            self.settings["last_preset_name"] = self.presets[self._active_editor_index]["name"]
+            save_settings(self.settings)
+
+    def editor_preset_changed(self, index: int):
+        previous = self._active_editor_index
+        if 0 <= previous < len(self.presets) and self._edited_preset() != self.presets[previous]:
+            if not self._save_preset_at(previous, self._edited_preset()):
+                self.preset_combo.blockSignals(True)
+                self.preset_combo.setCurrentIndex(previous)
+                self.preset_combo.blockSignals(False)
+                return
+        self._active_editor_index = index
+        self.show_preset(index)
+        if 0 <= index < len(self.presets):
+            self.settings["last_preset_name"] = self.presets[index]["name"]
+            save_settings(self.settings)
 
     def show_preset(self, index: int):
         if index < 0 or index >= len(self.presets):
@@ -490,21 +523,100 @@ class MainWindow(QMainWindow):
         index = self.preset_combo.currentIndex()
         if index < 0:
             return False
-        preset = self._edited_preset()
+        return self._save_preset_at(index, self._edited_preset())
+
+    def _save_preset_at(self, index: int, preset: dict) -> bool:
+        old = self.presets[index]
+        pending = [job for job in self.jobs if job.status == "Bereit" and job.preset == old]
         try:
             validate_preset(preset)
+            audio = self._replacement_audio() if requires_audio(preset) and any(not job.audio or not job.audio.is_file() for job in pending) else None
+            if requires_audio(preset) and pending and any(not job.audio or not job.audio.is_file() for job in pending) and audio is None:
+                return False
+            pending_ids = {id(job) for job in pending}
+            reserved = {job.output for job in self.jobs if id(job) not in pending_ids}
+            outputs = []
+            for job in pending:
+                output = plan_output(job.source, preset, reserved, job.trim_start, job.trim_end)
+                reserved.add(output)
+                outputs.append(output)
             self.presets[index] = preset
             save_presets(self.presets)
         except (ValueError, OSError) as exc:
+            self.presets[index] = old
             QMessageBox.warning(self, "Preset nicht gespeichert", str(exc))
             return False
         self.preset_combo.setItemText(index, preset["name"])
+        self.job_preset_combo.setItemText(index, preset["name"])
+        for job, output in zip(pending, outputs):
+            job.preset = copy.deepcopy(preset)
+            job.output = output
+            if requires_audio(preset) and (not job.audio or not job.audio.is_file()):
+                job.audio = audio
+            elif not requires_audio(preset):
+                job.audio = None
+        if self.preset_combo.currentIndex() == index:
+            self.settings["last_preset_name"] = preset["name"]
+            save_settings(self.settings)
         self.audio_input_row.setVisible(requires_audio(preset))
-        self.update_preview()
+        self.refresh_queue()
+        self.sync_job_preset()
         self.log.appendPlainText(f"Preset gespeichert: {preset['name']}")
         return True
 
+    def _replacement_audio(self) -> Path | None:
+        path = Path(self.audio_path.text().strip().strip('"'))
+        if not path.is_file():
+            self.choose_audio()
+            path = Path(self.audio_path.text().strip().strip('"'))
+        return path if path.is_file() else None
+
+    def sync_job_preset(self):
+        rows = {item.row() for item in self.table.selectedItems()}
+        jobs = [self.jobs[row] for row in rows if row < len(self.jobs)]
+        ready = [job for job in jobs if job.status == "Bereit"]
+        index = next((i for i, preset in enumerate(self.presets) if ready and all(job.preset == preset for job in ready)), -1)
+        self.job_preset_combo.blockSignals(True)
+        self.job_preset_combo.setCurrentIndex(index)
+        self.job_preset_combo.blockSignals(False)
+        self.job_preset_combo.setEnabled(bool(ready))
+
+    def assign_preset_to_selected(self, index: int):
+        if index < 0 or index >= len(self.presets):
+            return
+        rows = sorted({item.row() for item in self.table.selectedItems()})
+        jobs = [self.jobs[row] for row in rows if row < len(self.jobs) and self.jobs[row].status == "Bereit"]
+        if not jobs:
+            self.sync_job_preset()
+            return
+        preset = self.presets[index]
+        try:
+            audio = self._replacement_audio() if requires_audio(preset) and any(not job.audio or not job.audio.is_file() for job in jobs) else None
+            if requires_audio(preset) and any(not job.audio or not job.audio.is_file() for job in jobs) and audio is None:
+                self.sync_job_preset()
+                return
+            selected_ids = {id(job) for job in jobs}
+            reserved = {job.output for job in self.jobs if id(job) not in selected_ids}
+            outputs = []
+            for job in jobs:
+                output = plan_output(job.source, preset, reserved, job.trim_start, job.trim_end)
+                reserved.add(output)
+                outputs.append(output)
+        except (ValueError, OSError) as exc:
+            QMessageBox.warning(self, "Preset nicht übernommen", str(exc))
+            self.sync_job_preset()
+            return
+        for job, output in zip(jobs, outputs):
+            job.preset = copy.deepcopy(preset)
+            job.output = output
+            job.audio = (job.audio if job.audio and job.audio.is_file() else audio) if requires_audio(preset) else None
+        self.refresh_queue()
+        self.sync_job_preset()
+        self.log.appendPlainText(f"Preset für {len(jobs)} Auftrag/Aufträge: {preset['name']}")
+
     def new_preset(self):
+        if self._edited_preset() != self.presets[self.preset_combo.currentIndex()] and not self.save_current_preset():
+            return
         preset = copy.deepcopy(self.presets[self.preset_combo.currentIndex()])
         preset["name"] = "Neues Preset"
         preset["suffix"] = "_neu"
@@ -515,6 +627,8 @@ class MainWindow(QMainWindow):
         self.preset_name.selectAll()
 
     def import_preset(self):
+        if self._edited_preset() != self.presets[self.preset_combo.currentIndex()] and not self.save_current_preset():
+            return
         raw, ok = QInputDialog.getMultiLineText(self, "FFmpeg-Befehl importieren", "Vollständige Befehlszeile einfügen:")
         if not ok or not raw.strip():
             return
@@ -528,6 +642,8 @@ class MainWindow(QMainWindow):
         self._populate_presets(len(self.presets) - 1)
 
     def delete_preset(self):
+        if self._edited_preset() != self.presets[self.preset_combo.currentIndex()] and not self.save_current_preset():
+            return
         if len(self.presets) <= 1:
             QMessageBox.information(self, "Preset behalten", "Mindestens ein Preset muss erhalten bleiben.")
             return
@@ -601,14 +717,9 @@ class MainWindow(QMainWindow):
         if self._edited_preset() != self.presets[index] and not self.save_current_preset():
             return 0
         preset = copy.deepcopy(self.presets[index])
-        audio = None
-        if requires_audio(preset):
-            audio = Path(self.audio_path.text().strip().strip('"'))
-            if not audio.is_file():
-                self.choose_audio()
-                audio = Path(self.audio_path.text().strip().strip('"'))
-                if not audio.is_file():
-                    return 0
+        audio = self._replacement_audio() if requires_audio(preset) else None
+        if requires_audio(preset) and audio is None:
+            return 0
         reserved = {job.output for job in self.jobs}
         added = 0
         failures = []
@@ -640,7 +751,8 @@ class MainWindow(QMainWindow):
         return added
 
     def refresh_queue(self):
-        selected = self.table.currentRow()
+        current = self.table.currentRow()
+        selected_rows = {item.row() for item in self.table.selectedItems()}
         self.table.blockSignals(True)
         self.table.setRowCount(len(self.jobs))
         colors = {"Bereit": "#9eacc0", "Läuft": "#70e6c6", "Fertig": "#76d6a3", "Fehler": "#ff9cae", "Abgebrochen": "#ffbf80"}
@@ -653,9 +765,13 @@ class MainWindow(QMainWindow):
                 if col == 2:
                     item.setForeground(QColor(colors.get(job.status, "#e7edf5")))
                 self.table.setItem(row, col, item)
-        if 0 <= selected < len(self.jobs):
-            self.table.setCurrentCell(selected, 0)
-            self.table.selectRow(selected)
+        selection = self.table.selectionModel()
+        selection.clearSelection()
+        for row in sorted(selected_rows):
+            if row < len(self.jobs):
+                selection.select(self.table.model().index(row, 0), QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows)
+        if 0 <= current < len(self.jobs):
+            selection.setCurrentIndex(self.table.model().index(current, 0), QItemSelectionModel.SelectionFlag.NoUpdate)
         self.table.blockSignals(False)
         self.table.update_empty_state()
         selected_rows = {item.row() for item in self.table.selectedItems()}
@@ -667,6 +783,7 @@ class MainWindow(QMainWindow):
         self.start_button.setEnabled(any(job.status == "Bereit" for job in self.jobs) and not self.queue_running)
         self.update_trim_controls()
         self.update_preview()
+        self.sync_job_preset()
 
     def set_header_status(self, text: str, mode: str):
         self.header_status.setText(f"●  {text}")
@@ -736,6 +853,7 @@ class MainWindow(QMainWindow):
 
     def queue_selection_changed(self):
         job = self.selected_job()
+        self.sync_job_preset()
         self.open_folder_button.setEnabled(job is not None)
         self.show_trim_for_job(job)
         self.update_preview()
