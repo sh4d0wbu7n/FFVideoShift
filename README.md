@@ -24,7 +24,7 @@ Trim-Zeiten können als Sekunden, `MM:SS` oder `HH:MM:SS.mmm` eingegeben werden;
 
 ## Presets
 
-Die zehn mitgelieferten Presets stehen in [`presets.json`](presets.json). Der Editor in der App speichert Änderungen dort und übernimmt sie auch für wartende Aufträge, die dieses Preset verwenden. Beim Wechsel zu einem anderen Preset werden gültige, noch nicht gespeicherte Änderungen automatisch gespeichert. `settings.json` enthält lokale Binärpfade und die zuletzt gewählte Preset-Auswahl; die Datei wird von Git ignoriert.
+Die zwölf mitgelieferten Presets stehen in [`presets.json`](presets.json). Der Editor in der App speichert Änderungen dort und übernimmt sie auch für wartende Aufträge, die dieses Preset verwenden. Beim Wechsel zu einem anderen Preset werden gültige, noch nicht gespeicherte Änderungen automatisch gespeichert. `settings.json` enthält lokale Binärpfade und die zuletzt gewählte Preset-Auswahl; die Datei wird von Git ignoriert.
 
 | Preset | Ausgabe | Zweck |
 | --- | --- | --- |
@@ -38,6 +38,10 @@ Die zehn mitgelieferten Presets stehen in [`presets.json`](presets.json). Der Ed
 | Audio ersetzen · Video kopieren | MOV | Neue Tonspur, Videostream ohne Neucodierung |
 | MP4 · Streams kopieren | MP4 | Streams ohne Neucodierung umpacken |
 | 25 → 24 fps · Timescale | MOV | Vorhandenes Spezial-Preset für die Bildrate |
+| H.264 · 1080p · Seitenverhältnis | MP4 | Video in maximal 1920 × 1080 einpassen |
+| H.264 · 720p · Seitenverhältnis | MP4 | Video in maximal 1280 × 720 einpassen |
+
+Die Skalierungs-Presets erhalten das sichtbare Seitenverhältnis, auch bei nicht quadratischen Pixeln. Sie beschneiden das Bild nicht und fügen keine Balken hinzu. Bei anderen Seitenverhältnissen kann daher eine Kante kleiner als 1920 × 1080 beziehungsweise 1280 × 720 sein; kleinere Quellen werden für die jeweilige Zielgröße vergrößert. Die Abmessungen werden auf gerade Pixel gerundet, damit H.264 mit `yuv420p` funktioniert.
 
 Beim Ersetzen von Audio wird die neue Tonspur auf die Videolänge begrenzt; ist sie kürzer, wird Stille ergänzt. Das Video wird kopiert. Der Video-Codec muss deshalb zum MOV-Container passen. Beim MP4-Remux müssen die vorhandenen Streams zum MP4-Container passen.
 
