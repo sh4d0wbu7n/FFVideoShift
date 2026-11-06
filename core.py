@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import ctypes
 import json
+import math
 import os
 import re
 import shlex
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 PROJECT_DIR = Path(__file__).resolve().parent
@@ -113,11 +115,81 @@ def subprocess_command(args: list[str]) -> str:
     return subprocess.list2cmdline(args)
 
 
-def plan_output(source: Path, preset: dict, reserved: set[Path] | None = None) -> Path:
+def parse_timecode(raw: str) -> float | None:
+    """Parse seconds, MM:SS or HH:MM:SS with optional milliseconds."""
+    value = raw.strip().replace(",", ".")
+    if not value:
+        return None
+    parts = value.split(":")
+    if len(parts) > 3 or not all(re.fullmatch(r"\d+(?:\.\d{1,3})?", part) for part in parts):
+        raise ValueError("Zeitformat: Sekunden, MM:SS oder HH:MM:SS.mmm.")
+    try:
+        if len(parts) == 1:
+            total = Decimal(parts[0])
+        else:
+            if any("." in part for part in parts[:-1]):
+                raise ValueError("Nur Sekunden dürfen Nachkommastellen haben.")
+            seconds = Decimal(parts[-1])
+            minutes = int(parts[-2])
+            if seconds >= 60 or (len(parts) == 3 and minutes >= 60):
+                raise ValueError("Minuten und Sekunden müssen unter 60 liegen.")
+            total = seconds + Decimal(minutes * 60)
+            if len(parts) == 3:
+                total += Decimal(int(parts[0]) * 3600)
+    except InvalidOperation as exc:
+        raise ValueError("Ungültige Zeitangabe.") from exc
+    return float(total)
+
+
+def validate_trim_range(start: float | None, end: float | None) -> None:
+    if any(value is not None and (not math.isfinite(value) or value < 0) for value in (start, end)):
+        raise ValueError("Trim-Zeiten müssen positive Zahlen sein.")
+    if end is not None and end <= (start or 0):
+        raise ValueError("Das Ende muss nach dem Start liegen.")
+
+
+def parse_trim_range(start_text: str, end_text: str) -> tuple[float | None, float | None]:
+    start, end = parse_timecode(start_text), parse_timecode(end_text)
+    validate_trim_range(start, end)
+    return (None if start == 0 else start), end
+
+
+def format_timecode(seconds: float) -> str:
+    milliseconds = round(seconds * 1000)
+    hours, remainder = divmod(milliseconds, 3_600_000)
+    minutes, remainder = divmod(remainder, 60_000)
+    whole_seconds, fraction = divmod(remainder, 1000)
+    return f"{hours:02d}:{minutes:02d}:{whole_seconds:02d}.{fraction:03d}"
+
+
+def trim_suffix(start: float | None, end: float | None) -> str:
+    validate_trim_range(start, end)
+    if start is None and end is None:
+        return ""
+
+    def part(value: float) -> str:
+        milliseconds = round(value * 1000)
+        whole, fraction = divmod(milliseconds, 1000)
+        hours, remainder = divmod(whole, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        stamp = f"{hours}h{minutes:02d}m{seconds:02d}s" if hours else f"{minutes}m{seconds:02d}s" if minutes else f"{seconds}s"
+        return stamp[:-1] + f"p{fraction:03d}s" if fraction else stamp
+
+    return f"_trim_{part(start or 0)}-{part(end) if end is not None else 'end'}"
+
+
+def validate_trim_for_preset(preset: dict, start: float | None, end: float | None) -> None:
+    validate_trim_range(start, end)
+    if (start is not None or end is not None) and any(arg in {"-ss", "-t", "-to"} for arg in validate_preset(preset)[1:]):
+        raise ValueError("Dieses Preset enthält bereits -ss, -t oder -to. Entferne die Option vor dem zusätzlichen Trimmen.")
+
+
+def plan_output(source: Path, preset: dict, reserved: set[Path] | None = None, trim_start: float | None = None, trim_end: float | None = None) -> Path:
     validate_preset(preset)
+    validate_trim_for_preset(preset, trim_start, trim_end)
     reserved = reserved or set()
     extension = str(preset["extension"]).lstrip(".")
-    base = f"{source.stem}{preset['suffix']}"
+    base = f"{source.stem}{preset['suffix']}{trim_suffix(trim_start, trim_end)}"
     candidate = source.with_name(f"{base}.{extension}")
     number = 2
     while candidate == source or candidate.exists() or candidate in reserved:
@@ -130,8 +202,9 @@ def requires_audio(preset: dict) -> bool:
     return "{audio}" in validate_preset(preset)
 
 
-def build_command(binary: Path, source: Path, output: Path, preset: dict, audio: Path | None = None) -> tuple[str, list[str]]:
+def build_command(binary: Path, source: Path, output: Path, preset: dict, audio: Path | None = None, trim_start: float | None = None, trim_end: float | None = None) -> tuple[str, list[str]]:
     args = validate_preset(preset)
+    validate_trim_for_preset(preset, trim_start, trim_end)
     if not binary.is_file():
         raise ValueError("FFmpeg-Binary nicht gefunden.")
     if not source.is_file():
@@ -143,6 +216,11 @@ def build_command(binary: Path, source: Path, output: Path, preset: dict, audio:
     if output.exists():
         raise ValueError(f"Ausgabedatei existiert bereits: {output}")
     replaced = [str(source) if arg == "{input}" else str(output) if arg == "{output}" else str(audio) if arg == "{audio}" else arg for arg in args[1:]]
+    if trim_start is not None and trim_start > 0:
+        first_input = replaced.index("-i")
+        replaced[first_input:first_input] = ["-ss", format_timecode(trim_start)]
+    if trim_end is not None:
+        replaced[-1:-1] = ["-t", format_timecode(trim_end - (trim_start or 0))]
     return str(binary), ["-nostdin", "-hide_banner", "-n", "-progress", "pipe:1", "-stats_period", "0.25", *replaced]
 
 

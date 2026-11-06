@@ -22,8 +22,9 @@ from PySide6.QtWidgets import (
 )
 
 from core import (
-    build_command, import_command, load_presets, load_settings, parse_source_path, plan_output,
-    requires_audio, save_presets, save_settings, subprocess_command, validate_preset,
+    build_command, format_timecode, import_command, load_presets, load_settings,
+    parse_source_path, parse_trim_range, plan_output, requires_audio, save_presets,
+    save_settings, subprocess_command, validate_preset,
 )
 
 
@@ -86,6 +87,8 @@ class Job:
     preset: dict
     output: Path
     audio: Path | None = None
+    trim_start: float | None = None
+    trim_end: float | None = None
     status: str = "Bereit"
     duration: float | None = None
 
@@ -167,13 +170,14 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("FFVideoShift · FFmpeg Studio")
         self.resize(1460, 960)
-        self.setMinimumSize(1050, 720)
+        self.setMinimumSize(1200, 720)
         self.settings = load_settings()
         self.presets = load_presets()
         self.jobs: list[Job] = []
         self.active_job: Job | None = None
         self.queue_running = False
         self.cancel_requested = False
+        self.progress_duration: float | None = None
         self.probe_source: Path | None = None
         self.ffmpeg_process = QProcess(self)
         self.ffmpeg_process.readyReadStandardOutput.connect(self.read_progress)
@@ -342,7 +346,7 @@ class MainWindow(QMainWindow):
         right_scroll = QScrollArea()
         right_scroll.setFrameShape(QFrame.Shape.NoFrame)
         right_scroll.setWidgetResizable(True)
-        right_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        right_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         right_scroll.setWidget(right)
         splitter.addWidget(right_scroll)
 
@@ -357,6 +361,36 @@ class MainWindow(QMainWindow):
         self.ffprobe_path.editingFinished.connect(self.save_binary_settings)
         binary_layout.addLayout(path_row("FFMPEG", self.ffmpeg_path, self.choose_ffmpeg))
         binary_layout.addLayout(path_row("FFPROBE", self.ffprobe_path, self.choose_ffprobe))
+
+        trim_panel, trim_layout = panel()
+        right_layout.addWidget(trim_panel)
+        trim_layout.addWidget(label("QUELLE  /  TRIMMEN", "eyebrow"))
+        trim_header = QHBoxLayout()
+        trim_header.addWidget(label("In & Out", "section"))
+        trim_layout.addLayout(trim_header)
+        trim_fields = QHBoxLayout()
+        trim_fields.addWidget(label("START", "eyebrow"))
+        self.trim_start_edit = QLineEdit()
+        self.trim_start_edit.setPlaceholderText("00:00:00")
+        self.trim_start_edit.returnPressed.connect(self.apply_trim)
+        trim_fields.addWidget(self.trim_start_edit, 1)
+        trim_fields.addWidget(label("ENDE", "eyebrow"))
+        self.trim_end_edit = QLineEdit()
+        self.trim_end_edit.setPlaceholderText("Dateiende")
+        self.trim_end_edit.returnPressed.connect(self.apply_trim)
+        trim_fields.addWidget(self.trim_end_edit, 1)
+        trim_layout.addLayout(trim_fields)
+        self.trim_summary = label("Auftrag auswählen", "muted")
+        trim_layout.addWidget(self.trim_summary)
+        trim_actions = QHBoxLayout()
+        self.apply_trim_button = button("Bereich übernehmen", self.apply_trim, "primary")
+        self.reset_trim_button = button("Ganze Quelle", self.reset_trim, "ghost")
+        trim_actions.addWidget(self.apply_trim_button)
+        trim_actions.addWidget(self.reset_trim_button)
+        trim_actions.addStretch()
+        trim_layout.addLayout(trim_actions)
+        trim_layout.addWidget(label("Sekunden, MM:SS oder HH:MM:SS.mmm · Stream-Kopie: grob", "muted"))
+        self.update_trim_controls()
 
         preset_panel, preset_layout = panel()
         right_layout.addWidget(preset_panel)
@@ -631,6 +665,7 @@ class MainWindow(QMainWindow):
         finished = sum(job.status == "Fertig" for job in self.jobs)
         self.header_summary.setText(f"{len(self.jobs)} Aufträge · {finished} erledigt")
         self.start_button.setEnabled(any(job.status == "Bereit" for job in self.jobs) and not self.queue_running)
+        self.update_trim_controls()
         self.update_preview()
 
     def set_header_status(self, text: str, mode: str):
@@ -655,9 +690,54 @@ class MainWindow(QMainWindow):
         except OSError as exc:
             QMessageBox.warning(self, "Ordner nicht geöffnet", f"Der Ausgabeordner konnte nicht geöffnet werden:\n{folder}\n\n{exc}")
 
+    def trim_description(self, job: Job | None) -> str:
+        if not job:
+            return "Auftrag auswählen"
+        if job.trim_start is None and job.trim_end is None:
+            return "Ganze Quelle"
+        start = format_timecode(job.trim_start or 0)
+        end = format_timecode(job.trim_end) if job.trim_end is not None else "Dateiende"
+        return f"{start} → {end}"
+
+    def update_trim_controls(self):
+        job = self.selected_job()
+        enabled = bool(job and job.status == "Bereit")
+        for widget in (self.trim_start_edit, self.trim_end_edit, self.apply_trim_button, self.reset_trim_button):
+            widget.setEnabled(enabled)
+
+    def show_trim_for_job(self, job: Job | None):
+        self.trim_start_edit.setText(format_timecode(job.trim_start) if job and job.trim_start is not None else "")
+        self.trim_end_edit.setText(format_timecode(job.trim_end) if job and job.trim_end is not None else "")
+        self.trim_summary.setText(self.trim_description(job))
+        self.update_trim_controls()
+
+    def apply_trim(self):
+        job = self.selected_job()
+        if not job or job.status != "Bereit":
+            return
+        try:
+            start, end = parse_trim_range(self.trim_start_edit.text(), self.trim_end_edit.text())
+            if job.duration is not None and start is not None and start >= job.duration:
+                raise ValueError("Der Start liegt am oder nach dem Ende der Quelle.")
+            reserved = {item.output for item in self.jobs if item is not job}
+            output = plan_output(job.source, job.preset, reserved, start, end)
+        except (ValueError, OSError) as exc:
+            QMessageBox.warning(self, "Trim nicht übernommen", str(exc))
+            return
+        job.trim_start, job.trim_end, job.output = start, end, output
+        self.show_trim_for_job(job)
+        self.refresh_queue()
+        self.log.appendPlainText(f"Bereich für {job.source.name}: {self.trim_description(job)}")
+
+    def reset_trim(self):
+        self.trim_start_edit.clear()
+        self.trim_end_edit.clear()
+        self.apply_trim()
+
     def queue_selection_changed(self):
         job = self.selected_job()
         self.open_folder_button.setEnabled(job is not None)
+        self.show_trim_for_job(job)
         self.update_preview()
         selected_rows = {item.row() for item in self.table.selectedItems()}
         self.change_audio_button.setEnabled(any(self.jobs[row].status == "Bereit" and requires_audio(self.jobs[row].preset) for row in selected_rows))
@@ -728,7 +808,7 @@ class MainWindow(QMainWindow):
             return
         binary = Path(self.ffmpeg_path.text().strip().strip('"'))
         try:
-            program, args = build_command(binary, job.source, job.output, job.preset, job.audio)
+            program, args = build_command(binary, job.source, job.output, job.preset, job.audio, job.trim_start, job.trim_end)
             self.preview.setPlainText(subprocess_command([program, *args]))
         except ValueError as exc:
             self.preview.setPlainText(str(exc))
@@ -770,9 +850,9 @@ class MainWindow(QMainWindow):
             return
         reserved = {item.output for item in self.jobs if item is not job}
         if job.output.exists() or job.output in reserved:
-            job.output = plan_output(job.source, job.preset, reserved)
+            job.output = plan_output(job.source, job.preset, reserved, job.trim_start, job.trim_end)
         try:
-            program, args = build_command(Path(self.ffmpeg_path.text().strip().strip('"')), job.source, job.output, job.preset, job.audio)
+            program, args = build_command(Path(self.ffmpeg_path.text().strip().strip('"')), job.source, job.output, job.preset, job.audio, job.trim_start, job.trim_end)
         except ValueError as exc:
             job.status = "Fehler"
             self.log.appendPlainText(str(exc))
@@ -783,7 +863,12 @@ class MainWindow(QMainWindow):
         job.status = "Läuft"
         self.cancel_requested = False
         self.set_header_status("EXPORT LÄUFT", "running")
-        self.progress.setRange(0, 100 if job.duration else 0)
+        self.progress_duration = None
+        if job.duration:
+            self.progress_duration = max(0, min(job.duration, job.trim_end or job.duration) - (job.trim_start or 0)) or None
+        elif job.trim_end is not None:
+            self.progress_duration = job.trim_end - (job.trim_start or 0)
+        self.progress.setRange(0, 100 if self.progress_duration else 0)
         self.progress.setValue(0)
         self.progress_label.setText(f"{job.source.name}  →  {job.output.name}")
         self.stop_button.setEnabled(True)
@@ -793,7 +878,7 @@ class MainWindow(QMainWindow):
 
     def read_progress(self):
         text = bytes(self.ffmpeg_process.readAllStandardOutput()).decode("utf-8", errors="replace")
-        if not self.active_job or not self.active_job.duration:
+        if not self.active_job or not self.progress_duration:
             return
         for line in text.splitlines():
             if line.startswith("out_time="):
@@ -801,7 +886,7 @@ class MainWindow(QMainWindow):
                 try:
                     hours, minutes, seconds = value.split(":")
                     current = int(hours) * 3600 + int(minutes) * 60 + float(seconds)
-                    self.progress.setValue(min(100, max(0, round(current / self.active_job.duration * 100))))
+                    self.progress.setValue(min(100, max(0, round(current / self.progress_duration * 100))))
                 except (ValueError, ZeroDivisionError):
                     pass
 

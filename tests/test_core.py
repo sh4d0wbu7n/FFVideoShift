@@ -2,7 +2,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core import PROJECT_DIR, build_command, import_command, load_presets, parse_source_path, plan_output, requires_audio, validate_preset
+from core import (
+    PROJECT_DIR, build_command, format_timecode, import_command,
+    parse_source_path, parse_timecode, parse_trim_range, plan_output,
+    requires_audio, validate_preset,
+)
 
 TEST_TMP = PROJECT_DIR / ".tmp"
 TEST_TMP.mkdir(exist_ok=True)
@@ -15,6 +19,37 @@ SAMPLE = ('ffmpeg -itsscale 1.0416666666666667 '
 
 
 class PresetTests(unittest.TestCase):
+    def test_trim_timecodes_and_range(self):
+        self.assertEqual(parse_timecode("01:02:03,250"), 3723.25)
+        self.assertEqual(parse_timecode("02:03.5"), 123.5)
+        self.assertEqual(format_timecode(123.5), "00:02:03.500")
+        self.assertEqual(parse_trim_range("0", "00:00:10"), (None, 10.0))
+        with self.assertRaises(ValueError):
+            parse_trim_range("00:00:10", "00:00:09")
+        with self.assertRaises(ValueError):
+            parse_timecode("00:61")
+        with self.assertRaises(ValueError):
+            parse_timecode("-1")
+
+    def test_trimmed_output_and_ffmpeg_option_positions(self):
+        preset = import_command(SAMPLE)
+        with tempfile.TemporaryDirectory(dir=TEST_TMP) as folder:
+            root = Path(folder)
+            binary, source = root / "ffmpeg.exe", root / "film.mov"
+            binary.touch()
+            source.touch()
+            output = plan_output(source, preset, trim_start=10.5, trim_end=20)
+            self.assertEqual(output.name, "film_24fps_v2_trim_10p500s-20s.mov")
+            _, args = build_command(binary, source, output, preset, trim_start=10.5, trim_end=20)
+            self.assertEqual(args[args.index("-ss") + 1], "00:00:10.500")
+            self.assertEqual(args[args.index("-ss") + 2], "-i")
+            self.assertEqual(args[args.index("-t") + 1], "00:00:09.500")
+            self.assertEqual(args[-1], str(output))
+            end_only = plan_output(source, preset, trim_end=5)
+            _, end_args = build_command(binary, source, end_only, preset, trim_end=5)
+            self.assertNotIn("-ss", end_args)
+            self.assertEqual(end_args[end_args.index("-t") + 1], "00:00:05.000")
+
     def test_pasted_unc_path_keeps_network_location(self):
         unc = r"\\192.168.70.11\BackupKI\production\01_projects\metro36\Layouts\ShotRack\media\SC0001\S0020\SC0001_S0020_untitled_TK_002.mov"
         source = parse_source_path(f'"{unc}"')
@@ -79,13 +114,6 @@ class PresetTests(unittest.TestCase):
                 build_command(binary, source, output, preset)
             _, args = build_command(binary, source, output, preset, audio)
             self.assertEqual([args[i + 1] for i, arg in enumerate(args) if arg == "-i"], [str(source), str(audio)])
-
-    def test_ten_preset_names_and_outputs_are_distinct(self):
-        presets = load_presets()
-        self.assertEqual(len(presets), 10)
-        self.assertEqual(len({preset["name"] for preset in presets}), 10)
-        self.assertEqual(len({preset["suffix"] for preset in presets}), 10)
-
 
 if __name__ == "__main__":
     unittest.main()

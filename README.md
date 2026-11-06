@@ -14,11 +14,13 @@ In diesem Projekt ist der Python-Interpreter `C:\venv\python3_12_10\python.exe` 
 
 1. Preset wählen oder einen FFmpeg-Befehl importieren. Bei **Audio ersetzen** die zusätzliche Audiodatei im eingeblendeten Feld wählen.
 2. Dateien per Drag-and-drop auf die Dateiliste ziehen, über **Dateien hinzufügen** wählen oder einen vollständigen Dateipfad in das Feld **Dateipfad** einfügen und Enter drücken. Auch UNC-Pfade wie `\\Server\Freigabe\Ordner\clip.mov` werden unterstützt. Jede Datei erhält das gerade ausgewählte Preset und gegebenenfalls die gewählte Ersatz-Audiodatei. Änderungen am Preset werden beim Hinzufügen gespeichert. Für einzelne wartende Aufträge kann die Audiodatei mit **Audio ändern** ausgetauscht werden.
-3. Einen Auftrag anklicken, um Medieninfos und die vollständige Befehlsvorschau zu sehen.
+3. Einen Auftrag anklicken, um Medieninfos und die vollständige Befehlsvorschau zu sehen. Im Bereich **In & Out** optional Start und Ende eingeben und **Bereich übernehmen** klicken. Das funktioniert für wartende Aufträge. **Ganze Quelle** setzt den Trim zurück.
 4. **Warteschlange starten**. Aufträge laufen nacheinander. **Aktuellen Auftrag stoppen** beendet den laufenden FFmpeg-Prozess und hält die Warteschlange an.
 5. Einen Auftrag auswählen und **Ordner öffnen** klicken, um seinen Ausgabeordner im Windows Explorer zu öffnen. Das funktioniert auch vor dem Export.
 
 Jede Ausgabe landet **im selben Ordner wie die jeweilige Quelldatei**. Der Name besteht aus dem Quellnamen plus dem im Preset festgelegten Dateizusatz, etwa `film_24fps_timescale24000.mov`. Existiert die Datei bereits, wird `_2`, `_3` usw. angehängt. FFmpeg erhält zusätzlich `-n`, sodass es vorhandene Dateien auch bei einem zeitlichen Konflikt nicht überschreibt. Eine unvollständige Ausgabe nach Abbruch oder Fehler wird entfernt.
+
+Trim-Zeiten können als Sekunden, `MM:SS` oder `HH:MM:SS.mmm` eingegeben werden; ein Komma für Millisekunden ist ebenfalls möglich. Ein leeres Startfeld bedeutet Dateianfang, ein leeres Endfeld Dateiende. Der Name zeigt den Bereich, zum Beispiel `film_h264_hq_trim_10s-20s.mp4`. FFVideoShift setzt `-ss` vor die Eingabe und `-t` vor die Ausgabe. Bei **Stream-Kopie** ist der Start nur ungefähr am nächsten passenden Seek-Punkt möglich; Encodes schneiden genauer. [FFmpeg beschreibt dieses Verhalten in der Dokumentation](https://ffmpeg.org/ffmpeg.html).
 
 ## Presets
 

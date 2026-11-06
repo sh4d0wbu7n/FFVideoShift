@@ -50,7 +50,7 @@ def main() -> int:
     app.processEvents()
     if not window.table.empty_state.isVisible():
         raise AssertionError("Empty queue hint was not visible")
-    window.resize(1050, 720)
+    window.resize(1200, 720)
     app.processEvents()
     window.grab().save(str(folder / "ffvideoshift_small.png"))
     window.resize(1460, 960)
@@ -63,6 +63,17 @@ def main() -> int:
         raise AssertionError("Pasted source path was not added")
     if window.table.empty_state.isVisible():
         raise AssertionError("Empty queue hint remained over a queued file")
+    window.trim_start_edit.setText("00:00:00.200")
+    window.trim_end_edit.setText("00:00:00.700")
+    window.apply_trim()
+    if window.jobs[0].trim_start != 0.2 or window.jobs[0].trim_end != 0.7 or "_trim_0p200s-0p700s" not in window.jobs[0].output.name:
+        raise AssertionError("Trim was not applied to the queued job")
+    window.reset_trim()
+    if window.jobs[0].trim_start is not None or window.jobs[0].trim_end is not None or "_trim_" in window.jobs[0].output.name:
+        raise AssertionError("Trim reset did not restore the full source")
+    window.trim_start_edit.setText("00:00:00.200")
+    window.trim_end_edit.setText("00:00:00.700")
+    window.apply_trim()
     if not window.open_folder_button.isEnabled():
         raise AssertionError("Output folder button was not enabled")
     with patch("app.os.startfile") as open_folder:
@@ -72,6 +83,11 @@ def main() -> int:
     window.preset_combo.setCurrentIndex(window.preset_combo.findText("Audio ersetzen · Video kopieren"))
     window.audio_path.setText(str(replacement_audio))
     window.add_files([str(source)])
+    window.trim_start_edit.setText("0.1")
+    window.trim_end_edit.setText("0.6")
+    window.apply_trim()
+    if window.jobs[2].trim_start != 0.1 or window.jobs[2].trim_end != 0.6:
+        raise AssertionError("Trim was not applied to the audio replacement job")
     window.grab().save(str(folder / "ffvideoshift_audio.png"))
     app.processEvents()
     probe_loop = QEventLoop()
@@ -94,6 +110,12 @@ def main() -> int:
     if any(job.status != "Fertig" or not job.output.is_file() for job in window.jobs):
         print(window.log.toPlainText())
         return 1
+    ffprobe = shutil.which("ffprobe")
+    if ffprobe:
+        for job in (window.jobs[0], window.jobs[2]):
+            result = subprocess.run([ffprobe, "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", str(job.output)], capture_output=True, text=True, check=True)
+            if not 0.35 <= float(result.stdout.strip()) <= 0.75:
+                raise AssertionError(f"Unexpected trimmed duration: {result.stdout.strip()}")
     window.close()
     return 0
 

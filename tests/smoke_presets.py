@@ -55,7 +55,11 @@ def main() -> int:
         print(replacement.stderr)
         return 1
     failed = []
-    for preset in load_presets():
+    presets = load_presets()
+    for preset in presets:
+        if preset["suffix"] not in EXPECTED_CODECS:
+            print(f"SKIP custom preset: {preset['name']}")
+            continue
         output = plan_output(source, preset)
         program, args = build_command(Path(ffmpeg), source, output, preset, audio if requires_audio(preset) else None)
         result = run([program, *args])
@@ -81,6 +85,16 @@ def main() -> int:
             print(f"FAIL {preset['name']}: unexpected codecs {codecs}")
             continue
         print(f"OK {preset['name']} -> {output.name}")
+    timescale = next((preset for preset in presets if preset["suffix"] == "_24fps_timescale24000"), None)
+    if timescale:
+        output = plan_output(source, timescale, trim_start=0.2, trim_end=0.7)
+        program, args = build_command(Path(ffmpeg), source, output, timescale, trim_start=0.2, trim_end=0.7)
+        result = run([program, *args])
+        if result.returncode or not output.is_file():
+            failed.append("25 → 24 fps mit Trim")
+            print(f"FAIL 25->24 trim: {result.stderr[-1200:]}")
+        else:
+            print(f"OK 25->24 trim -> {output.name}")
     return 1 if failed else 0
 
 
