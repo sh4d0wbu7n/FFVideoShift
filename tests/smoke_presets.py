@@ -1,6 +1,7 @@
 """Encode a tiny video with every bundled preset. Uses only project-local test files."""
 
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -26,7 +27,14 @@ EXPECTED_CODECS = {
     "_h264_720p": ("h264", "aac"),
 }
 
-SCALE_TARGETS = {"_h264_1080p": (1920, 1080), "_h264_720p": (1280, 720)}
+SCALE_SUFFIXES = {"_h264_1080p", "_h264_720p"}
+
+
+def scale_target(preset: dict) -> tuple[int, int]:
+    match = re.search(r"scale=(\d+):(\d+):force_original_aspect_ratio=decrease", preset["command"])
+    if not match:
+        raise AssertionError(f"Missing aspect-preserving scale target in {preset['name']}")
+    return int(match.group(1)), int(match.group(2))
 
 
 def run(args: list[str], timeout: int = 45) -> subprocess.CompletedProcess:
@@ -88,9 +96,9 @@ def main() -> int:
             failed.append(preset["name"])
             print(f"FAIL {preset['name']}: unexpected codecs {codecs}")
             continue
-        if preset["suffix"] in SCALE_TARGETS:
+        if preset["suffix"] in SCALE_SUFFIXES:
             video = next(stream for stream in streams if stream.get("codec_type") == "video")
-            expected_side = SCALE_TARGETS[preset["suffix"]][1]
+            expected_side = min(scale_target(preset))
             if (video["width"], video["height"]) != (expected_side, expected_side):
                 failed.append(preset["name"])
                 print(f"FAIL {preset['name']}: square source became {video['width']}x{video['height']}")
@@ -109,9 +117,9 @@ def main() -> int:
             print(f"FAIL {shape} fixture: {fixture.stderr[-1200:]}")
             continue
         for preset in presets:
-            if preset["suffix"] not in SCALE_TARGETS:
+            if preset["suffix"] not in SCALE_SUFFIXES:
                 continue
-            target_width, target_height = SCALE_TARGETS[preset["suffix"]]
+            target_width, target_height = scale_target(preset)
             output = plan_output(shaped_source, preset)
             program, args = build_command(Path(ffmpeg), shaped_source, output, preset)
             result = run([program, *args])

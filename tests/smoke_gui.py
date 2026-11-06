@@ -70,9 +70,15 @@ def main() -> int:
         raise AssertionError("Pasted source path was not added")
     if window.table.empty_state.isVisible():
         raise AssertionError("Empty queue hint remained over a queued file")
-    window.job_preset_combo.setCurrentIndex(fast_index)
+    window.preset_combo.setCurrentIndex(fast_index)
     if window.jobs[0].preset["name"] != "H.264 · schnell" or window.jobs[0].output.suffix != ".mp4":
-        raise AssertionError("Changing preset after adding source did not update queued job")
+        raise AssertionError("Editor preset change after adding source did not update queued job")
+    if "libx264" not in window.preview.toPlainText() or "prores_ks" in window.preview.toPlainText():
+        raise AssertionError("Command preview still uses the previous preset")
+    with patch.object(window, "choose_audio"):
+        window.preset_combo.setCurrentIndex(window.preset_combo.findText("Audio ersetzen · Video kopieren"))
+    if window.preset_combo.currentIndex() != fast_index or window.jobs[0].preset["name"] != "H.264 · schnell":
+        raise AssertionError("Cancelled audio selection changed the queued preset")
     with patch("app.save_presets") as save_presets:
         window.preset_combo.setCurrentIndex(fast_index)
         original_suffix = window.preset_suffix.text()
@@ -91,9 +97,13 @@ def main() -> int:
     with patch("app.save_presets") as save_presets:
         window.preset_suffix.setText("_h264_fast_auto")
         window.preset_combo.setCurrentIndex(prores_index)
-        if save_presets.call_count != 1 or "_h264_fast_auto" not in window.jobs[0].output.name:
+        if save_presets.call_count != 1 or window.presets[fast_index]["suffix"] != "_h264_fast_auto":
             raise AssertionError("Switching editor presets discarded an unsaved change")
+        if window.jobs[0].preset["name"] != "ProRes HQ · Schnittmaster":
+            raise AssertionError("Editor preset change did not update selected job")
         window.preset_combo.setCurrentIndex(fast_index)
+        if "_h264_fast_auto" not in window.jobs[0].output.name:
+            raise AssertionError("Returning to edited preset did not update selected job")
         window.preset_suffix.setText(original_suffix)
         window.save_current_preset()
     window.trim_start_edit.setText("00:00:00.200")
@@ -132,9 +142,10 @@ def main() -> int:
     if len({item.row() for item in window.table.selectedItems()}) != 2:
         raise AssertionError("Multi-selection was lost after updating queue")
     selection.clearSelection()
-    window.table.selectRow(1)
-    window.preset_combo.setCurrentIndex(window.preset_combo.findText("Audio ersetzen · Video kopieren"))
     window.audio_path.setText(str(replacement_audio))
+    window.preset_combo.setCurrentIndex(window.preset_combo.findText("Audio ersetzen · Video kopieren"))
+    if window.jobs[1].preset["name"] != "H.264 · hohe Qualität":
+        raise AssertionError("Changing the default without a marked job changed the queue")
     window.add_files([str(source)])
     window.trim_start_edit.setText("0.1")
     window.trim_end_edit.setText("0.6")

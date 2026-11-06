@@ -301,7 +301,7 @@ class MainWindow(QMainWindow):
         self.table.itemSelectionChanged.connect(self.queue_selection_changed)
         queue_layout.addWidget(self.table, 1)
         assignment = QHBoxLayout()
-        assignment.addWidget(label("PRESET FÜR AUSGEWÄHLTE AUFTRÄGE", "eyebrow"))
+        assignment.addWidget(label("PRESET NUR FÜR MARKIERTE AUFTRÄGE", "eyebrow"))
         self.job_preset_combo = QComboBox()
         self.job_preset_combo.setToolTip("Preset für markierte wartende Aufträge ändern")
         self.job_preset_combo.currentIndexChanged.connect(self.assign_preset_to_selected)
@@ -408,8 +408,10 @@ class MainWindow(QMainWindow):
         preset_header.addWidget(label("Befehl bearbeiten", "section"))
         preset_header.addStretch()
         preset_layout.addLayout(preset_header)
-        preset_layout.addWidget(label("PRESET FÜR NEUE DATEIEN / EDITOR", "eyebrow"))
+        self.editor_preset_label = label("PRESET FÜR NEUE DATEIEN / EDITOR", "eyebrow")
+        preset_layout.addWidget(self.editor_preset_label)
         self.preset_combo = QComboBox()
+        self.preset_combo.setToolTip("Ändert das Preset markierter wartender Aufträge und die Vorgabe für neue Dateien")
         self.preset_combo.currentIndexChanged.connect(self.editor_preset_changed)
         preset_layout.addWidget(self.preset_combo)
         details = QGridLayout()
@@ -494,6 +496,11 @@ class MainWindow(QMainWindow):
                 self.preset_combo.setCurrentIndex(previous)
                 self.preset_combo.blockSignals(False)
                 return
+        if not self.assign_preset_to_selected(index):
+            self.preset_combo.blockSignals(True)
+            self.preset_combo.setCurrentIndex(previous)
+            self.preset_combo.blockSignals(False)
+            return
         self._active_editor_index = index
         self.show_preset(index)
         if 0 <= index < len(self.presets):
@@ -580,21 +587,22 @@ class MainWindow(QMainWindow):
         self.job_preset_combo.setCurrentIndex(index)
         self.job_preset_combo.blockSignals(False)
         self.job_preset_combo.setEnabled(bool(ready))
+        self.editor_preset_label.setText("PRESET FÜR MARKIERTE + NEUE DATEIEN / EDITOR" if ready else "PRESET FÜR NEUE DATEIEN / EDITOR")
 
-    def assign_preset_to_selected(self, index: int):
+    def assign_preset_to_selected(self, index: int) -> bool:
         if index < 0 or index >= len(self.presets):
-            return
+            return False
         rows = sorted({item.row() for item in self.table.selectedItems()})
         jobs = [self.jobs[row] for row in rows if row < len(self.jobs) and self.jobs[row].status == "Bereit"]
         if not jobs:
             self.sync_job_preset()
-            return
+            return True
         preset = self.presets[index]
         try:
             audio = self._replacement_audio() if requires_audio(preset) and any(not job.audio or not job.audio.is_file() for job in jobs) else None
             if requires_audio(preset) and any(not job.audio or not job.audio.is_file() for job in jobs) and audio is None:
                 self.sync_job_preset()
-                return
+                return False
             selected_ids = {id(job) for job in jobs}
             reserved = {job.output for job in self.jobs if id(job) not in selected_ids}
             outputs = []
@@ -605,7 +613,7 @@ class MainWindow(QMainWindow):
         except (ValueError, OSError) as exc:
             QMessageBox.warning(self, "Preset nicht übernommen", str(exc))
             self.sync_job_preset()
-            return
+            return False
         for job, output in zip(jobs, outputs):
             job.preset = copy.deepcopy(preset)
             job.output = output
@@ -613,6 +621,7 @@ class MainWindow(QMainWindow):
         self.refresh_queue()
         self.sync_job_preset()
         self.log.appendPlainText(f"Preset für {len(jobs)} Auftrag/Aufträge: {preset['name']}")
+        return True
 
     def new_preset(self):
         if self._edited_preset() != self.presets[self.preset_combo.currentIndex()] and not self.save_current_preset():
