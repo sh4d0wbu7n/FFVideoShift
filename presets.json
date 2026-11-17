@@ -70,5 +70,11 @@
     "suffix": "_h264_720p",
     "extension": "mp4",
     "command": "ffmpeg -i \"{input}\" -map 0:v:0 -map 0:a? -vf \"scale=1280:720:force_original_aspect_ratio=decrease:force_divisible_by=2:reset_sar=1\" -c:v libx264 -preset medium -crf 20 -pix_fmt yuv420p -c:a aac -b:a 192k -movflags +faststart \"{output}\""
+  },
+  {
+    "name": "Audio → schwarzes Video · 1024 × 576",
+    "suffix": "_black_video_1024x576",
+    "extension": "mp4",
+    "command": "ffmpeg -i \"{input}\" -filter_complex \"color=c=black:s=1024x576:r=25[bg]\" -map \"[bg]\" -map 0:a:0 -c:v libx264 -preset veryfast -crf 20 -pix_fmt yuv420p -c:a aac -b:a 192k -shortest -movflags +faststart \"{output}\""
   }
 ]

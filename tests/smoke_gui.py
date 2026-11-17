@@ -1,5 +1,6 @@
 """Optional end-to-end smoke check. Run from the project venv."""
 
+import json
 import os
 import shutil
 import subprocess
@@ -161,6 +162,13 @@ def main() -> int:
         probe_loop.exec()
     if not window.jobs[2].duration:
         raise AssertionError("Media duration was not read")
+    selection.clearSelection()
+    window.preset_combo.setCurrentIndex(window.preset_combo.findText("Audio → schwarzes Video · 1024 × 576"))
+    if window.jobs[2].preset["name"] != "Audio ersetzen · Video kopieren":
+        raise AssertionError("Selecting the black-video preset changed an unmarked job")
+    window.add_files([str(replacement_audio)])
+    if len(window.jobs) != 4 or window.jobs[3].source != replacement_audio or window.jobs[3].output.suffix != ".mp4":
+        raise AssertionError("Audio-only source was not queued for the black-video preset")
     window.start_queue()
     deadline = QTimer()
     deadline.setSingleShot(True)
@@ -183,6 +191,13 @@ def main() -> int:
             result = subprocess.run([ffprobe, "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", str(job.output)], capture_output=True, text=True, check=True)
             if not 0.35 <= float(result.stdout.strip()) <= 0.75:
                 raise AssertionError(f"Unexpected trimmed duration: {result.stdout.strip()}")
+        result = subprocess.run([ffprobe, "-v", "error", "-print_format", "json", "-show_streams", "-show_format", str(window.jobs[3].output)], capture_output=True, text=True, check=True)
+        data = json.loads(result.stdout)
+        video = next(stream for stream in data["streams"] if stream["codec_type"] == "video")
+        audio = next(stream for stream in data["streams"] if stream["codec_type"] == "audio")
+        if ((video["width"], video["height"], video["codec_name"], audio["codec_name"]) != (1024, 576, "h264", "aac") or
+                not 0.35 <= float(data["format"]["duration"]) <= 0.55):
+            raise AssertionError("Audio-only GUI export has wrong streams or duration")
     window.close()
     with patch("app.load_settings", return_value={"last_preset_name": "H.264 · schnell"}):
         reopened = MainWindow()

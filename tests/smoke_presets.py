@@ -25,6 +25,7 @@ EXPECTED_CODECS = {
     "_24fps_timescale24000": ("mpeg4", None),
     "_h264_1080p": ("h264", "aac"),
     "_h264_720p": ("h264", "aac"),
+    "_black_video_1024x576": ("h264", "aac"),
 }
 
 SCALE_SUFFIXES = {"_h264_1080p", "_h264_720p"}
@@ -72,8 +73,9 @@ def main() -> int:
         if preset["suffix"] not in EXPECTED_CODECS:
             print(f"SKIP custom preset: {preset['name']}")
             continue
-        output = plan_output(source, preset)
-        program, args = build_command(Path(ffmpeg), source, output, preset, audio if requires_audio(preset) else None)
+        preset_source = audio if preset["suffix"] == "_black_video_1024x576" else source
+        output = plan_output(preset_source, preset)
+        program, args = build_command(Path(ffmpeg), preset_source, output, preset, audio if requires_audio(preset) else None)
         result = run([program, *args])
         if result.returncode or not output.is_file():
             failed.append(preset["name"])
@@ -102,6 +104,19 @@ def main() -> int:
             if (video["width"], video["height"]) != (expected_side, expected_side):
                 failed.append(preset["name"])
                 print(f"FAIL {preset['name']}: square source became {video['width']}x{video['height']}")
+                continue
+        if preset["suffix"] == "_black_video_1024x576":
+            video = next(stream for stream in streams if stream.get("codec_type") == "video")
+            duration = float(data.get("format", {}).get("duration", 0))
+            frame = subprocess.run(
+                [ffmpeg, "-v", "error", "-i", str(output), "-frames:v", "1", "-vf", "scale=8:8",
+                 "-pix_fmt", "rgb24", "-f", "rawvideo", "pipe:1"],
+                capture_output=True, timeout=10, check=True,
+            ).stdout
+            if ((video["width"], video["height"]) != (1024, 576) or
+                    not 0.35 <= duration <= 0.55 or len(frame) != 8 * 8 * 3 or max(frame) > 8):
+                failed.append(preset["name"])
+                print(f"FAIL {preset['name']}: dimensions, duration or black frame incorrect")
                 continue
         print(f"OK {preset['name']} -> {output.name}")
     for shape, width, height, sar_num, sar_den in (

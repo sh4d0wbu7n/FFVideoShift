@@ -24,7 +24,7 @@ Trim-Zeiten können als Sekunden, `MM:SS` oder `HH:MM:SS.mmm` eingegeben werden;
 
 ## Presets
 
-Die zwölf mitgelieferten Presets stehen in [`presets.json`](presets.json). Der Editor in der App speichert Änderungen dort und übernimmt sie auch für wartende Aufträge, die dieses Preset verwenden. Beim Wechsel zu einem anderen Preset werden gültige, noch nicht gespeicherte Änderungen automatisch gespeichert. `settings.json` enthält lokale Binärpfade und die zuletzt gewählte Preset-Auswahl; die Datei wird von Git ignoriert.
+Die dreizehn mitgelieferten Presets stehen in [`presets.json`](presets.json). Der Editor in der App speichert Änderungen dort und übernimmt sie auch für wartende Aufträge, die dieses Preset verwenden. Beim Wechsel zu einem anderen Preset werden gültige, noch nicht gespeicherte Änderungen automatisch gespeichert. `settings.json` enthält lokale Binärpfade und die zuletzt gewählte Preset-Auswahl; die Datei wird von Git ignoriert.
 
 | Preset | Ausgabe | Zweck |
 | --- | --- | --- |
@@ -40,6 +40,9 @@ Die zwölf mitgelieferten Presets stehen in [`presets.json`](presets.json). Der 
 | 25 → 24 fps · Timescale | MOV | Vorhandenes Spezial-Preset für die Bildrate |
 | H.264 · 1080p · Seitenverhältnis | MP4 | Video in maximal 1920 × 1080 einpassen |
 | H.264 · 720p · Seitenverhältnis | MP4 | Video in maximal 1280 × 720 einpassen |
+| Audio → schwarzes Video · 1024 × 576 | MP4 | Audiodatei mit schwarzem H.264-Bild bei 25 fps und AAC-Ton |
+
+Für **Audio → schwarzes Video** eine Audiodatei als Quelle hinzufügen. Das schwarze Bild wird in 1024 × 576 erzeugt; der Export endet mit der Tonspur. Die Ausgabe liegt wie gewohnt neben der Quelldatei.
 
 Die Skalierungs-Presets erhalten das sichtbare Seitenverhältnis, auch bei nicht quadratischen Pixeln. Sie beschneiden das Bild nicht und fügen keine Balken hinzu. Bei anderen Seitenverhältnissen kann daher eine Kante kleiner als 1920 × 1080 beziehungsweise 1280 × 720 sein; kleinere Quellen werden für die jeweilige Zielgröße vergrößert. Die Abmessungen werden auf gerade Pixel gerundet, damit H.264 mit `yuv420p` funktioniert.
 
@@ -61,7 +64,7 @@ ffmpeg -itsscale 1.0416666666666667 -i "im-grunde-mord_SC0002_S0130_v003_25_fps.
 
 FFVideoShift ersetzt dabei die konkrete Eingabe und Ausgabe durch Platzhalter. `output_24fps_v2.mov` ergibt automatisch den Dateizusatz `_24fps_v2` und die Endung `mov`. Beides kann anschließend bearbeitet werden.
 
-Presets unterstützen derzeit **eine Videodatei und optional eine zweite Audiodatei pro Auftrag**. Weitere `-i`-Eingaben und komplexe Filtergraphen mit externen Dateien können später gezielt ergänzt werden.
+Presets unterstützen derzeit **eine Mediendatei und optional eine zweite Audiodatei pro Auftrag**. Das neue Schwarzbild-Preset akzeptiert auch eine reine Audiodatei als Quelle. Weitere `-i`-Eingaben und komplexe Filtergraphen mit externen Dateien können später gezielt ergänzt werden.
 
 ## Medieninfos und Fortschritt
 
